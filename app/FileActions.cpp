@@ -200,7 +200,9 @@ void MainComponent::fileMenu(juce::Component* target) {
     m.addItem(11, "Export a MIDI file...");
     m.addSeparator();
     m.addItem(13, "Take the tour");
-    m.addItem(8, "Open .pulp files with PULP when double-clicked");
+#if JUCE_WINDOWS
+    m.addItem(8, "Open .pulp files with PULP when double-clicked");     // on a Mac the bundle's Info.plist does this
+#endif
     m.addItem(9, "Exit");
     m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(target), [this, recents, baks](int r) {
         if (r == 1) fileNew();
@@ -224,12 +226,14 @@ void MainComponent::fileMenu(juce::Component* target) {
                 else if (session_.exportMidiSong(fc.getResult().withFileExtension("mid"))) showMessage("Wrote " + fc.getResult().withFileExtension("mid").getFileName());
             });
         }
+#if JUCE_WINDOWS
         else if (r == 8) {
             // registers the file type for this Windows user only
             const auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
             const bool ok = juce::WindowsRegistry::registerFileAssociation(".pulp", "PULP.Project", "PULP project", exe, 0, true, juce::WindowsRegistry::WoW64_Default);
             showMessage(ok ? "Done. Double-clicking a .pulp file now opens it in PULP." : "Windows did not accept the change.");
         }
+#endif
         else if (r == 9) ifSafeToDiscard([] { juce::JUCEApplication::getInstance()->quit(); });
         else if (r >= 200 && r - 200 < baks.size()) { const auto f = baks[r - 200]; ifSafeToDiscard([this, f] { session_.restoreBackup(f); }); }
         else if (r >= 100 && r - 100 < recents.size()) { const juce::File f(recents[r - 100]); ifSafeToDiscard([this, f] { session_.openProject(f); }); }

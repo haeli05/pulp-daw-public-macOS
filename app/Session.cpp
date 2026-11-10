@@ -148,8 +148,20 @@ Session::~Session() { shutdown(); }
 
 juce::File Session::settingsFile() { return dataDir().getChildFile("settings.xml"); }
 
+// The factory library sits beside the program on Windows (dist\PULP\factory). On macOS it is inside
+// the bundle (PULP.app/Contents/Resources/factory); a build that has not been copied into a bundle
+// yet finds it beside the .app instead.
 juce::File Session::factoryDir() {
+#if JUCE_MAC
+    const auto bundle = juce::File::getSpecialLocation(juce::File::currentApplicationFile);      // PULP.app
+    const auto inside = bundle.getChildFile("Contents/Resources/factory");
+    if (inside.isDirectory()) return inside;
+    const auto beside = bundle.getParentDirectory().getChildFile("factory");
+    if (beside.isDirectory()) return beside;
+    return inside;
+#else
     return juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory().getChildFile("factory");
+#endif
 }
 
 void Session::start(bool noAudio) {
@@ -668,9 +680,14 @@ juce::String Session::deviceSummary() const {
     return "No audio device open";
 }
 
-// First run: use the ASIO driver that belongs to the Windows default output device when
+// First run on Windows: use the ASIO driver that belongs to the Windows default output device when
 // there is one (lowest latency), otherwise Windows Audio on the default device.
+// On macOS: Core Audio on the system's default output and input, with a 256-sample buffer (Core
+// Audio's own default of 512 is more delay than playing a keyboard wants).
 void Session::chooseFirstRunDevice() {
+#if JUCE_MAC
+    if (openDevice("CoreAudio", {}, 0, 256).isNotEmpty()) openDevice("CoreAudio", {});
+#else
     juce::String defaultOut;
     juce::AudioIODeviceType* asio = nullptr;
     for (auto* t : devices.getAvailableDeviceTypes()) {
@@ -692,6 +709,7 @@ void Session::chooseFirstRunDevice() {
         // the ASIO driver did not open: go back to Windows Audio on the default device
         openDevice("Windows Audio", {});
     }
+#endif
 }
 
 juce::String Session::openDevice(const juce::String& type, const juce::String& name, double sampleRate, int bufferSize) {

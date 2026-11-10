@@ -154,7 +154,7 @@ void ParamKnob::mouseDown(const juce::MouseEvent& e) {
 
 void ParamKnob::mouseDrag(const juce::MouseEvent& e) {
     if (!param_ || !dragging_) return;
-    const float range = e.mods.isCtrlDown() ? 1200.0f : 160.0f;
+    const float range = e.mods.isCommandDown() ? 1200.0f : 160.0f;
     setValueNorm(dragStartNorm_ - (float)e.getDistanceFromDragStartY() / range, false);
 }
 
@@ -173,7 +173,7 @@ void ParamKnob::mouseDoubleClick(const juce::MouseEvent& e) {
 
 void ParamKnob::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
     if (!param_) return;
-    const float stepN = param_->info.steps > 1 ? 1.0f / (float)(param_->info.steps - 1) : (e.mods.isCtrlDown() ? 0.005f : 0.03f);
+    const float stepN = param_->info.steps > 1 ? 1.0f / (float)(param_->info.steps - 1) : (e.mods.isCommandDown() ? 0.005f : 0.03f);
     setValueNorm(param_->getNorm() + (w.deltaY > 0 ? stepN : -stepN), true);
 }
 
@@ -216,7 +216,7 @@ void NumberBox::mouseDown(const juce::MouseEvent& e) {
 
 void NumberBox::mouseDrag(const juce::MouseEvent& e) {
     if (e.mods.isPopupMenu() || !setValue) return;
-    const double st = e.mods.isCtrlDown() ? fineStep : step;
+    const double st = e.mods.isCommandDown() ? fineStep : step;
     const double v = dragStart_ - std::round(e.getDistanceFromDragStartY() / 3.0) * st;
     setValue(juce::jlimit(minValue, maxValue, v));
     dragged_ = true;
@@ -238,7 +238,7 @@ void NumberBox::mouseDoubleClick(const juce::MouseEvent& e) {
 
 void NumberBox::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
     if (!setValue || !getValue) return;
-    const double st = e.mods.isCtrlDown() ? fineStep : step;
+    const double st = e.mods.isCommandDown() ? fineStep : step;
     setValue(juce::jlimit(minValue, maxValue, getValue() + (w.deltaY > 0 ? st : -st)));
     repaint();
     if (onGestureEnd) onGestureEnd();

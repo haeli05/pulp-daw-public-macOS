@@ -5,8 +5,15 @@
 #include "Mp3TestUtil.h"
 #include "Mp3TestStreams.h"
 #include <chrono>
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <csetjmp>
+#include <csignal>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 using namespace pulp;
 using namespace tu;
 using namespace mp3t;
@@ -28,6 +35,7 @@ std::vector<unsigned char> encoded(Sig kind, int channels, size_t frames, int kb
 // Decodes a copy of the bytes that lies between two pages of memory that may not be touched: the copy
 // ends exactly where the page behind it starts, and a page in front is barred too. A decoder that
 // reads even one byte outside its input stops the test run on the spot.
+#ifdef _WIN32
 struct Fenced {
     unsigned char* base = nullptr;
     unsigned char* data = nullptr;
@@ -55,6 +63,46 @@ bool faults(const unsigned char* p) {
     }
     return false;
 }
+#else
+struct Fenced {
+    unsigned char* base = nullptr;
+    unsigned char* data = nullptr;
+    size_t total = 0;
+    Fenced(const unsigned char* from, size_t size) {
+        const size_t page = (size_t)sysconf(_SC_PAGESIZE), body = (size + page - 1) / page * page;
+        total = body + 2 * page;
+        void* m = mmap(nullptr, total, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (m == MAP_FAILED) return;
+        base = (unsigned char*)m;
+        data = base + page + body - size;
+        if (size) std::memcpy(data, from, size);
+        mprotect(base, page, PROT_NONE);
+        mprotect(base + page + body, page, PROT_NONE);
+    }
+    ~Fenced() { if (base) munmap(base, total); }
+};
+// True if reading the byte at p is stopped by the system: the fault is caught by a signal handler
+// that jumps back here. Only used on this thread by the fence test, so a static jump buffer is fine.
+sigjmp_buf faultJump;
+void onFault(int) { siglongjmp(faultJump, 1); }
+bool faults(const unsigned char* p) {
+    struct sigaction sa = {}, oldSegv = {}, oldBus = {};
+    sa.sa_handler = onFault;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, &oldSegv);
+    sigaction(SIGBUS, &sa, &oldBus);        // macOS reports a protected page as SIGBUS
+    bool faulted = false;
+    if (sigsetjmp(faultJump, 1) == 0) {
+        volatile unsigned char v = *p;
+        (void)v;
+    } else {
+        faulted = true;
+    }
+    sigaction(SIGSEGV, &oldSegv, nullptr);
+    sigaction(SIGBUS, &oldBus, nullptr);
+    return faulted;
+}
+#endif
 std::shared_ptr<SampleData> decodeExact(const unsigned char* data, size_t size, std::string* error = nullptr) {
     Fenced f(data, size);
     CHECK(f.base != nullptr);

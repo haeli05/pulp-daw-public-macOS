@@ -71,7 +71,7 @@ public:
     void shutdown();
     void closeWindows();
 
-    struct Entry { std::string typeId; juce::String name, maker, file; bool instrument; };
+    struct Entry { std::string typeId; juce::String name, maker, file; bool instrument; juce::String format; };    // format: "VST3" or "AU"
     std::vector<Entry> plugins() const;             // every scanned plugin, by name
     std::string findByName(const juce::String& part) const;       // type id of the first plugin whose name contains this
     std::shared_ptr<pulp::Plugin> create(const std::string& typeId);
@@ -83,7 +83,8 @@ public:
     void endReuse();
 
     // Scanning. Each file is examined by a child process (this program run with --scan-vst3).
-    juce::StringArray defaultFiles() const;         // every .vst3 in the usual folders and the folders that were added
+    juce::StringArray defaultFiles() const;         // every .vst3 in the usual folders and the folders that were added,
+                                                    // and on macOS every Audio Unit the system knows ("AudioUnit:..." identifiers)
     void scan(const juce::StringArray& files, bool rescanKnown, std::function<void(const juce::String&)> progress,
               std::function<void(int found, int failed)> done);
     bool scanning() const { return scanThread_ != nullptr && scanThread_->isThreadRunning(); }
@@ -100,7 +101,7 @@ public:
     void closeEditorsFor(pulp::Plugin* plugin);
     void closeEditorsNotIn(const pulp::Project& project);
     juce::String describeEditors() const;
-    bool captureWindow(int index, const juce::File& png) const;      // a picture of a plugin window as Windows draws it
+    bool captureWindow(int index, const juce::File& png) const;      // a picture of a plugin window as Windows draws it (false elsewhere)
     std::function<void()> onListChanged;
     std::function<void(std::shared_ptr<pulp::Plugin>)> onShowParameters;      // the PARAMETERS button in a plugin window
     std::function<bool(const juce::KeyPress&)> onKey;                         // keys the plugin did not want

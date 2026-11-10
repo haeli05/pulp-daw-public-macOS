@@ -179,7 +179,7 @@ public:
     }
     void mouseDrag(const juce::MouseEvent& e) override {
         if (!dragging_) return;
-        const float range = (float)juce::jmax(40, faderRect().getHeight() - 12) * (e.mods.isCtrlDown() ? 8.0f : 1.0f);
+        const float range = (float)juce::jmax(40, faderRect().getHeight() - 12) * (e.mods.isCommandDown() ? 8.0f : 1.0f);
         live().volume.set(dragStart_ - (float)e.getDistanceFromDragStartY() / range);
         ParamUi::touch(&live().volume, 1);
         repaint();
@@ -623,9 +623,9 @@ void MixerView::slotMenu(int slot, juce::Component* target) {
         for (auto& e : PluginHost::get().plugins())
             if (!e.instrument) { vst.addItem(100 + (int)ids.size(), e.name + (e.maker.isEmpty() ? juce::String() : "   (" + e.maker + ")")); ids.push_back(e.typeId); }
         vst.addSeparator();
-        vst.addItem(5, "Find VST3 plugins...");
+        vst.addItem(5, "Find " PULP_PLUGIN_KINDS " plugins...");
         m.addSeparator();
-        m.addSubMenu("VST3 plugins", vst);
+        m.addSubMenu(PULP_PLUGIN_KINDS " plugins", vst);
     }
     if (tr.slots[slot]) {
         m.addSeparator();
@@ -660,7 +660,7 @@ bool MixerView::keyPressed(const juce::KeyPress& k) {
     const auto mods = k.getModifiers();
     const int code = k.getKeyCode();
     // Alt+Left / Alt+Right move the selected track one place
-    if ((code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey) && mods.isAltDown() && !mods.isCtrlDown() && !mods.isShiftDown()) {
+    if ((code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey) && mods.isAltDown() && !mods.isCommandDown() && !mods.isShiftDown()) {
         moveTrack(sel, code == juce::KeyPress::leftKey ? -1 : 1);
         return true;
     }
@@ -675,7 +675,7 @@ bool MixerView::keyPressed(const juce::KeyPress& k) {
         return true;
     }
     // Ctrl+L sends the channels selected in the rack to the selected track; with Shift, to it and the tracks after it
-    if (code == 'L' && mods.isCtrlDown() && !mods.isAltDown() && sel >= 1 && sel <= pulp::kNumInserts) {
+    if (code == 'L' && mods.isCommandDown() && !mods.isAltDown() && sel >= 1 && sel <= pulp::kNumInserts) {
         int track = sel;
         for (auto& c : s_.project.channels)
             if (s_.selectedChannels.count(c.id)) { c.mixerTrack = juce::jmin(track, pulp::kNumInserts); if (mods.isShiftDown()) ++track; }

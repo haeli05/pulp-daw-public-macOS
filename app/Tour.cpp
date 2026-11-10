@@ -76,12 +76,12 @@ void TourOverlay::paint(juce::Graphics& g) {
     g.drawText(juce::String(step_ + 1) + " of " + juce::String((int)steps_.size()), inner.removeFromTop(12), juce::Justification::centredRight, false);
     g.setColour(theme::accent);
     g.setFont(theme::font(17.0f, true));
-    g.drawText(s.title, inner.removeFromTop(24), juce::Justification::centredLeft, true);
+    g.drawText(theme::keys(s.title), inner.removeFromTop(24), juce::Justification::centredLeft, true);
     inner.removeFromTop(4);
     inner.removeFromBottom(32);
     g.setColour(theme::text);
     g.setFont(theme::font(13.5f));
-    g.drawFittedText(s.text, inner, juce::Justification::topLeft, 7, 0.9f);
+    g.drawFittedText(theme::keys(s.text), inner, juce::Justification::topLeft, 7, 0.9f);
 }
 
 bool TourOverlay::keyPressed(const juce::KeyPress& k) {

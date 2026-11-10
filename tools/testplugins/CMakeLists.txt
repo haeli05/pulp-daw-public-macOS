@@ -1,12 +1,19 @@
 # The two VST3 plugins the hosting checks use (scripts\m10_vst3.txt). Not part of the normal build:
 # "build.bat testplugins" builds them into build\release\testplugins.
+# On macOS they are built as Audio Units too, for checking the AU hosting.
+if(APPLE)
+  set(PULP_TEST_PLUGIN_FORMATS VST3 AU)
+else()
+  set(PULP_TEST_PLUGIN_FORMATS VST3)
+endif()
+
 function(pulp_test_plugin target name code synth)
   juce_add_plugin(${target}
     PRODUCT_NAME "${name}"
     COMPANY_NAME "PULP"
     PLUGIN_MANUFACTURER_CODE Pulp
     PLUGIN_CODE ${code}
-    FORMATS VST3
+    FORMATS ${PULP_TEST_PLUGIN_FORMATS}
     IS_SYNTH ${synth}
     NEEDS_MIDI_INPUT ${synth}
     NEEDS_MIDI_OUTPUT FALSE
@@ -31,4 +38,8 @@ endfunction()
 
 pulp_test_plugin(pulp_test_tone "PULP Test Tone" PtTn TRUE)
 pulp_test_plugin(pulp_test_delay "PULP Test Delay" PtDl FALSE)
-add_custom_target(testplugins DEPENDS pulp_test_tone_VST3 pulp_test_delay_VST3)
+if(APPLE)
+  add_custom_target(testplugins DEPENDS pulp_test_tone_VST3 pulp_test_delay_VST3 pulp_test_tone_AU pulp_test_delay_AU)
+else()
+  add_custom_target(testplugins DEPENDS pulp_test_tone_VST3 pulp_test_delay_VST3)
+endif()

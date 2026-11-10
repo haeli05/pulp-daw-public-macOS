@@ -14,6 +14,15 @@ public:
     juce::Font getTextButtonFont(juce::TextButton&, int) override { return theme::font(13.0f); }
     juce::Font getComboBoxFont(juce::ComboBox&) override { return theme::font(13.0f); }
     juce::Font getLabelFont(juce::Label&) override { return theme::font(13.0f); }
+    // menu text names keys the way this computer's keyboard does (Cmd / Option on a Mac)
+    void drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive, bool isHighlighted, bool isTicked,
+                           bool hasSubMenu, const juce::String& text, const juce::String& shortcutKeyText, const juce::Drawable* icon,
+                           const juce::Colour* textColour) override {
+        LookAndFeel_V4::drawPopupMenuItem(g, area, isSeparator, isActive, isHighlighted, isTicked, hasSubMenu, theme::keys(text), shortcutKeyText, icon, textColour);
+    }
+    void getIdealPopupMenuItemSize(const juce::String& text, bool isSeparator, int standardHeight, int& idealWidth, int& idealHeight) override {
+        LookAndFeel_V4::getIdealPopupMenuItemSize(theme::keys(text), isSeparator, standardHeight, idealWidth, idealHeight);
+    }
     void drawScrollbar(juce::Graphics&, juce::ScrollBar&, int x, int y, int w, int h, bool vertical, int thumbStart, int thumbSize, bool over, bool down) override;
 };
 

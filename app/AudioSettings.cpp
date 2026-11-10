@@ -5,7 +5,11 @@ AudioSettings::AudioSettings(Session& s) : s_(s) {
         addAndMakeVisible(c);
         c->onChange = [this] { if (!refreshing_) apply(); };
     }
+#if JUCE_MAC
+    type_.setTooltip("Audio driver. Core Audio is the macOS sound system; an aggregate device made in Audio MIDI Setup combines several interfaces.");
+#else
     type_.setTooltip("Audio driver. ASIO gives the lowest latency; Windows Audio shares the device with other programs.");
+#endif
     output_.setTooltip("Device the sound comes out of");
     input_.setTooltip("Device used for recording");
     rate_.setTooltip("Sample rate");

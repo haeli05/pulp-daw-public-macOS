@@ -87,7 +87,7 @@ public:
     // is the hum an octave below; from partial 3 they rise, from a tuned bell's (colour 0) to a struck bar's (colour 1).
     static double bellRatio(int partial, float colour);
 
-    // Tests only: use the plain C++ oscillator loop instead of the SSE one (the two give the same samples).
+    // Tests only: use the plain C++ oscillator loop instead of the SIMD one (the two give the same samples).
     bool forceScalar = false;
 
     // ---- parameters ----

@@ -23,7 +23,7 @@ public:
     bool userRoot = false;                      // a folder the user added (can be removed)
 
     // a built-in plugin opens to show its presets (a hosted one keeps its presets in its own window)
-    bool hasPresets() const { return kind == Kind::Plugin && preset < 0 && pluginId.rfind("vst3:", 0) != 0; }
+    bool hasPresets() const { return kind == Kind::Plugin && preset < 0 && pluginId.rfind("vst3:", 0) != 0 && pluginId.rfind("au:", 0) != 0; }
     bool mightContainSubItems() override { return kind == Kind::Section || kind == Kind::Folder || hasPresets(); }
     int getItemHeight() const override { return 20; }
     juce::String getUniqueName() const override { return label_ + "|" + file.getFullPathName() + "|" + juce::String(pluginId) + "|" + juce::String(preset); }
@@ -289,7 +289,7 @@ void Browser::refresh() {
                     if (!t.instrument && juce::String(t.category) == cat) { auto* it = new Item(*this, Kind::Plugin, t.name); it->pluginId = t.id; it->effect = true; sec->addSubItem(it); }
                 fx->addSubItem(sec);
             }
-            auto* vstFx = new Item(*this, Kind::Section, "VST3 effects");
+            auto* vstFx = new Item(*this, Kind::Section, PULP_PLUGIN_KINDS " effects");
             for (auto& e : PluginHost::get().plugins())
                 if (!e.instrument) { auto* it = new Item(*this, Kind::Plugin, e.name); it->pluginId = e.typeId; it->effect = true; vstFx->addSubItem(it); }
             if (vstFx->getNumSubItems() > 0) fx->addSubItem(vstFx); else delete vstFx;
@@ -297,10 +297,10 @@ void Browser::refresh() {
         }
         {
             // instruments from other makers (effects are added from a mixer slot's menu)
-            auto* vst = new Item(*this, Kind::Section, "VST3 instruments");
+            auto* vst = new Item(*this, Kind::Section, PULP_PLUGIN_KINDS " instruments");
             for (auto& e : PluginHost::get().plugins())
                 if (e.instrument) { auto* it = new Item(*this, Kind::Plugin, e.name); it->pluginId = e.typeId; vst->addSubItem(it); }
-            auto* find = new Item(*this, Kind::Action, "Find VST3 plugins...");
+            auto* find = new Item(*this, Kind::Action, "Find " PULP_PLUGIN_KINDS " plugins...");
             find->action = [this] { if (s_.onShowSettings) s_.onShowSettings(2); };
             vst->addSubItem(find);
             plugins->addSubItem(vst);

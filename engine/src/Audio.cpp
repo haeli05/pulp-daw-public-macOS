@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include "FileIo.h"
 
 namespace pulp {
 
@@ -54,7 +55,7 @@ inline void wr32(std::vector<unsigned char>& o, unsigned v) { wr16(o, v & 0xFFFF
 
 uint64 nextAudioUid() { static std::atomic<uint64> n{1}; return n.fetch_add(1); }
 
-void* openFileForRead(const std::string& utf8Path) { return _wfopen(u8path(utf8Path).wstring().c_str(), L"rb"); }
+void* openFileForRead(const std::string& utf8Path) { return fileio::open(u8path(utf8Path), "rb"); }
 
 // Walks the chunks of a WAV file. read(offset, dst, n) returns how many bytes it could give.
 template <class Read>
@@ -100,9 +101,9 @@ static bool parseWav(Read&& read, int64 size, WavInfo& info, std::string* error)
 bool readWavInfo(const std::string& path, WavInfo& info, std::string* error) {
     FILE* f = (FILE*)openFileForRead(path);
     if (!f) { if (error) *error = "cannot open " + path; return false; }
-    _fseeki64(f, 0, SEEK_END);
-    const int64 size = _ftelli64(f);
-    const bool ok = parseWav([&](int64 off, unsigned char* dst, int n) { _fseeki64(f, off, SEEK_SET); return (int)fread(dst, 1, (size_t)n, f); }, size, info, error);
+    fileio::seek(f, 0, SEEK_END);
+    const int64 size = fileio::tell(f);
+    const bool ok = parseWav([&](int64 off, unsigned char* dst, int n) { fileio::seek(f, off, SEEK_SET); return (int)fread(dst, 1, (size_t)n, f); }, size, info, error);
     fclose(f);
     return ok;
 }
@@ -206,7 +207,7 @@ bool WavStreamWriter::open(const std::string& path, double sampleRate, int chann
     std::error_code ec;
     auto p = u8path(path);
     if (p.has_parent_path()) fs::create_directories(p.parent_path(), ec);
-    FILE* f = _wfopen(p.wstring().c_str(), L"wb");
+    FILE* f = fileio::open(p, "wb");
     if (!f) return false;
     file_ = f;
     path_ = path;

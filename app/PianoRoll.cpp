@@ -569,7 +569,7 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e) {
     if (rulerArea().contains(p)) {
         const int tick = snapTick(tickOfX((float)p.x), e.mods.isAltDown(), false);
         if (e.mods.isPopupMenu()) { rulerMenu(tick); return; }
-        if (e.mods.isCtrlDown()) { gesture_ = RulerLoop; downTick_ = tick; return; }
+        if (e.mods.isCommandDown()) { gesture_ = RulerLoop; downTick_ = tick; return; }
         gesture_ = RulerSeek;
         if (s_.stepRecording) { s_.stepCursor = tick; s_.notify(); } else s_.engine.seek(tick);
         return;
@@ -597,7 +597,7 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e) {
 
     if (e.mods.isMiddleButtonDown()) { gesture_ = Panning; return; }
     if (e.mods.isPopupMenu()) {
-        if (e.mods.isCtrlDown()) { gesture_ = RightZoom; zoomStartPx_ = pxPerTick_; zoomStartKeyH_ = keyH_; return; }
+        if (e.mods.isCommandDown()) { gesture_ = RightZoom; zoomStartPx_ = pxPerTick_; zoomStartKeyH_ = keyH_; return; }
         if (tool_ == Zoom) { zoomX(1.0 / 1.6, (float)p.x); return; }
         gesture_ = Erase;
         if (hit >= 0) { ns->erase(ns->begin() + hit); changed_ = true; s_.publish(); repaint(); }
@@ -606,7 +606,7 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e) {
     switch (tool_) {
         case Draw:
         case Paint: {
-            if (e.mods.isCtrlDown()) { gesture_ = Marquee; marquee_ = {p.x, p.y, 0, 0}; return; }
+            if (e.mods.isCommandDown()) { gesture_ = Marquee; marquee_ = {p.x, p.y, 0, 0}; return; }
             if (hit >= 0) {
                 Note& n = (*ns)[(size_t)hit];
                 if (!n.selected) { for (auto& o : *ns) o.selected = false; n.selected = true; }
@@ -656,8 +656,8 @@ void PianoRoll::mouseDown(const juce::MouseEvent& e) {
         case Slice: gesture_ = Slicing; break;
         case Select:
             if (hit >= 0) {
-                if (!e.mods.isShiftDown() && !e.mods.isCtrlDown()) for (auto& o : *ns) o.selected = false;
-                (*ns)[(size_t)hit].selected = !(*ns)[(size_t)hit].selected || !(e.mods.isShiftDown() || e.mods.isCtrlDown());
+                if (!e.mods.isShiftDown() && !e.mods.isCommandDown()) for (auto& o : *ns) o.selected = false;
+                (*ns)[(size_t)hit].selected = !(*ns)[(size_t)hit].selected || !(e.mods.isShiftDown() || e.mods.isCommandDown());
                 template_ = (*ns)[(size_t)hit];
                 repaint();
             } else { gesture_ = Marquee; marquee_ = {p.x, p.y, 0, 0}; }
@@ -925,7 +925,7 @@ void PianoRoll::showNoteProperties(int index) {
 
 void PianoRoll::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
     const float d = std::fabs(w.deltaY) > std::fabs(w.deltaX) ? w.deltaY : w.deltaX;
-    if (e.mods.isCtrlDown()) zoomX(d > 0 ? 1.25 : 0.8, (float)e.x);
+    if (e.mods.isCommandDown()) zoomX(d > 0 ? 1.25 : 0.8, (float)e.x);
     else if (e.mods.isAltDown()) {
         const int topKey = keyOfY((float)e.y);
         keyH_ = juce::jlimit(6, 40, keyH_ + (d > 0 ? 2 : -2));
@@ -1059,14 +1059,14 @@ bool PianoRoll::handleKey(const juce::KeyPress& k) {
     if (!ns) return false;
     const auto mods = k.getModifiers();
     const int code = k.getKeyCode();
-    const bool ctrl = mods.isCtrlDown(), shift = mods.isShiftDown(), alt = mods.isAltDown();
+    const bool ctrl = mods.isCommandDown(), shift = mods.isShiftDown(), alt = mods.isAltDown();
     const bool plain = !ctrl && !shift && !alt;
 
     if (plain && !s_.typingKeyboard) {
         static const char keys[] = {'P', 'B', 'D', 'T', 'C', 'E', 'Z', 'Y'};
         for (int i = 0; i < NumTools; ++i) if (code == keys[i]) { setTool(i); return true; }
     }
-    if (code == juce::KeyPress::deleteKey && plain) { deleteSelected(); return true; }
+    if (theme::isDeleteKey(code) && plain) { deleteSelected(); return true; }
     if (code == 'A' && ctrl && !shift && !alt) { selectAll(true); return true; }
     if (code == 'D' && ctrl && !shift && !alt) { selectAll(false); return true; }
     if (code == 'C' && ctrl && !alt) { copySelection(false); return true; }

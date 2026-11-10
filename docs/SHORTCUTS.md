@@ -4,6 +4,11 @@ Checked on 2026-10-16 against the manual's "Keyboard and mouse shortcuts" page
 (image-line.com, FL Studio online manual, `basics_shortcuts.htm`), read through a text extraction of the page:
 a line that the extraction dropped would not show here. Every line of that list is below with what PULP does.
 
+**On macOS** read Ctrl as Command and Alt as Option throughout (FL Studio's Mac edition does the same).
+Two standard keys differ there because macOS owns them: Pause is Control+Space (Command+Space opens
+Spotlight) and Stop all sound is Command+period (Command+H hides the program). Delete also answers to the
+Mac's delete (backspace) key.
+
 - **same**: the key does the same thing in PULP.
 - **added**: the same, and it was added during this audit (milestone 14).
 - **no**: PULP has the feature but not on a key, or has no such feature; the note says which.

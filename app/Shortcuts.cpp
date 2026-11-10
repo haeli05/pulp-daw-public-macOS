@@ -11,8 +11,10 @@ void Shortcuts::add(const juce::String& id, const juce::String& group, const juc
 juce::String Shortcuts::describe(const juce::KeyPress& k) {
     if (!k.isValid()) return "(none)";
     auto text = k.getTextDescription();
-    // JUCE writes "ctrl + S"; the manual writes "Ctrl+S"
-    text = text.replace("ctrl", "Ctrl").replace("shift", "Shift").replace("alt", "Alt").replace(" + ", "+").replace("spacebar", "Space").replace("numpad ", "Numpad ");
+    // JUCE writes "ctrl + S"; the manual writes "Ctrl+S". On a Mac JUCE writes "command + S" and
+    // "option + S" for what Windows calls Ctrl and Alt.
+    text = text.replace("command", "Cmd").replace("option", "Option").replace("ctrl", "Ctrl").replace("shift", "Shift").replace("alt", "Alt")
+               .replace(" + ", "+").replace("spacebar", "Space").replace("numpad ", "Numpad ");
     return text;
 }
 
@@ -62,12 +64,14 @@ juce::String Shortcuts::assign(int index, juce::KeyPress key) {
             if (i != index && commands_[(size_t)i].key == key) { loser = commands_[(size_t)i].name; commands_[(size_t)i].key = juce::KeyPress(); }
     commands_[(size_t)index].key = key;
     save();
+    if (onChanged) onChanged();
     return loser;
 }
 
 void Shortcuts::resetAll() {
     for (auto& c : commands_) c.key = c.standard;
     save();
+    if (onChanged) onChanged();
 }
 
 // ------------------------------------------------------------------ the settings page

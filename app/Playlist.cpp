@@ -706,7 +706,7 @@ void Playlist::mouseDown(const juce::MouseEvent& e) {
     if (rulerArea().contains(p)) {
         const int64 tick = snapTick(tickOfX((float)p.x), e.mods.isAltDown(), false);
         if (e.mods.isPopupMenu()) { rulerMenu(tick); return; }
-        if (e.mods.isCtrlDown()) { gesture_ = RulerLoop; downTick_ = tick; return; }
+        if (e.mods.isCommandDown()) { gesture_ = RulerLoop; downTick_ = tick; return; }
         gesture_ = RulerSeek;
         if (s_.project.songMode) s_.seek((double)tick);
         return;
@@ -722,7 +722,7 @@ void Playlist::mouseDown(const juce::MouseEvent& e) {
 
     if (e.mods.isMiddleButtonDown()) { gesture_ = Panning; return; }
     // inside an automation clip's curve: points and tension handles are dragged, a right-click adds a point
-    if (hit >= 0 && clips[(size_t)hit].type == Clip::AutomationClip && (tool_ == Draw || tool_ == Paint) && !e.mods.isCtrlDown()
+    if (hit >= 0 && clips[(size_t)hit].type == Clip::AutomationClip && (tool_ == Draw || tool_ == Paint) && !e.mods.isCommandDown()
         && !locked(clips[(size_t)hit].track) && (float)p.y > clipRect(clips[(size_t)hit]).getY() + 12.0f) {
         auto& clip = clips[(size_t)hit];
         if (auto* a = s_.project.autoById(clip.autoId)) {
@@ -758,7 +758,7 @@ void Playlist::mouseDown(const juce::MouseEvent& e) {
         }
     }
     if (e.mods.isPopupMenu()) {
-        if (e.mods.isCtrlDown()) { gesture_ = RightZoom; zoomStartPx_ = pxPerTick_; return; }
+        if (e.mods.isCommandDown()) { gesture_ = RightZoom; zoomStartPx_ = pxPerTick_; return; }
         if (tool_ == Zoom) { zoomX(1.0 / 1.6, (float)p.x); return; }
         gesture_ = Erase;
         if (hit >= 0 && canErase(hit, p)) { clips.erase(clips.begin() + hit); changed_ = true; s_.publish(); repaint(); }
@@ -767,7 +767,7 @@ void Playlist::mouseDown(const juce::MouseEvent& e) {
     switch (tool_) {
         case Draw:
         case Paint: {
-            if (e.mods.isCtrlDown()) { gesture_ = Marquee; marquee_ = {p.x, p.y, 0, 0}; return; }
+            if (e.mods.isCommandDown()) { gesture_ = Marquee; marquee_ = {p.x, p.y, 0, 0}; return; }
             if (hit >= 0) {
                 if (part == 3) {
                     if (clips[(size_t)hit].type == Clip::AudioClip) audioClipMenu(hit);
@@ -831,7 +831,7 @@ void Playlist::mouseDown(const juce::MouseEvent& e) {
         case Slice: gesture_ = Slicing; break;
         case Select:
             if (hit >= 0) {
-                if (!e.mods.isShiftDown() && !e.mods.isCtrlDown()) for (auto& c : clips) c.selected = false;
+                if (!e.mods.isShiftDown() && !e.mods.isCommandDown()) for (auto& c : clips) c.selected = false;
                 selectGroupOf(hit);
                 repaint();
             } else { gesture_ = Marquee; marquee_ = {p.x, p.y, 0, 0}; }
@@ -1091,7 +1091,7 @@ void Playlist::mouseDoubleClick(const juce::MouseEvent& e) {
 
 void Playlist::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
     const float d = std::fabs(w.deltaY) > std::fabs(w.deltaX) ? w.deltaY : w.deltaX;
-    if (e.mods.isCtrlDown()) zoomX(d > 0 ? 1.25 : 0.8, (float)e.x);
+    if (e.mods.isCommandDown()) zoomX(d > 0 ? 1.25 : 0.8, (float)e.x);
     else if (e.mods.isAltDown()) { baseTrackH_ = juce::jlimit(16, 90, baseTrackH_ + (d > 0 ? 4 : -4)); rebuildTrackTops(); clampScroll(); updateScrollbars(); repaint(); }
     else if (e.mods.isShiftDown() || std::fabs(w.deltaX) > std::fabs(w.deltaY)) { scrollTick_ -= d * 480.0 / pxPerTick_ * 0.25; clampScroll(); updateScrollbars(); repaint(); }
     else { scrollY_ -= (int)(d * 120.0f); clampScroll(); updateScrollbars(); repaint(); }
@@ -1417,13 +1417,13 @@ bool Playlist::handleKey(const juce::KeyPress& k) {
     auto& clips = s_.project.clips;
     const auto mods = k.getModifiers();
     const int code = k.getKeyCode();
-    const bool ctrl = mods.isCtrlDown(), shift = mods.isShiftDown(), alt = mods.isAltDown();
+    const bool ctrl = mods.isCommandDown(), shift = mods.isShiftDown(), alt = mods.isAltDown();
     const bool plain = !ctrl && !shift && !alt;
     if (plain && !s_.typingKeyboard) {
         static const char keys[] = {'P', 'B', 'D', 'T', 'S', 'C', 'E', 'Z', 'Y'};
         for (int i = 0; i < NumTools; ++i) if (code == keys[i]) { setTool(i); return true; }
     }
-    if (code == juce::KeyPress::deleteKey && plain) { deleteSelected(); return true; }
+    if (theme::isDeleteKey(code) && plain) { deleteSelected(); return true; }
     if (code == 'A' && ctrl && !alt) { selectAll(true); return true; }
     if (code == 'D' && ctrl && !alt) { selectAll(false); return true; }
     if (code == 'B' && ctrl && !alt) { duplicateSelected(); return true; }
@@ -1511,7 +1511,7 @@ bool Playlist::handleMoreKeys(const juce::KeyPress& k) {
     auto& clips = s_.project.clips;
     const auto mods = k.getModifiers();
     const int code = k.getKeyCode();
-    const bool ctrl = mods.isCtrlDown(), shift = mods.isShiftDown(), alt = mods.isAltDown();
+    const bool ctrl = mods.isCommandDown(), shift = mods.isShiftDown(), alt = mods.isAltDown();
     if (code == 'M' && alt && !ctrl) {                  // Alt+M mutes the selected clips, Alt+Shift+M unmutes them
         bool any = false;
         for (auto& c : clips) if (c.selected) { c.muted = !shift; any = true; }

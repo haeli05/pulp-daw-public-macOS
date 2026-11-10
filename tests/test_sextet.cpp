@@ -7,6 +7,21 @@ using namespace ft;
 
 namespace {
 
+// Bessel function of the first kind, integer order, by its power series (libc++ has no
+// std::cyl_bessel_j). Converges to double precision within a few dozen terms for the small
+// indices these tests use.
+double besselJ(int n, double x) {
+    double term = 1.0;
+    for (int i = 1; i <= n; ++i) term *= x / (2.0 * i);         // (x/2)^n / n!
+    double sum = term;
+    const double q = -0.25 * x * x;
+    for (int k = 1; k < 60 && std::fabs(term) > 1e-18; ++k) {
+        term *= q / ((double)k * (double)(k + n));
+        sum += term;
+    }
+    return sum;
+}
+
 void setp(Sextet& s, const std::string& id, float v) {
     Param* p = s.param(id);
     CHECK_MSG(p != nullptr, "no parameter %s", id.c_str());
@@ -154,7 +169,7 @@ TEST(sextet_phase_modulation_matches_the_bessel_functions) {
     const double carrier = 0.35;        // level 1 x the default volume
     const struct { double mult; int order; } parts[] = {{1, 0}, {2, 1}, {4, 1}, {5, 2}, {7, 2}, {8, 3}, {10, 3}};
     for (auto& pt : parts) {
-        const double got = ampAt(out->ch[0], 9600, 32768, f * pt.mult, sr), want = carrier * std::fabs(std::cyl_bessel_j(pt.order, index));
+        const double got = ampAt(out->ch[0], 9600, 32768, f * pt.mult, sr), want = carrier * std::fabs(besselJ(pt.order, index));
         CHECK_MSG(std::fabs(got / want - 1.0) < 0.01, "partial %g f: %.5f, expected %.5f", pt.mult, got, want);
     }
     CHECK(ampAt(out->ch[0], 9600, 32768, f * 3.0, sr) < 1.0e-4);       // nothing where no sideband belongs
@@ -172,12 +187,12 @@ TEST(sextet_phase_modulation_matches_the_bessel_functions) {
     setp(*m, "m12", 0.5f);
     auto out3 = play(m, {mk(0, 3840, 48)});
     CHECK_NEAR(ampAt(out3->ch[0], 9600, 32768, f * 2.0, sr) / ampAt(out3->ch[0], 9600, 32768, f, sr),
-               std::cyl_bessel_j(1, 0.75) / std::cyl_bessel_j(0, 0.75), 0.005);
+               besselJ(1, 0.75) / besselJ(0, 0.75), 0.005);
     // modulation depth scales it too
     setp(*m, "moddepth", 2.0f);
     auto out4 = play(m, {mk(0, 3840, 48)});
     CHECK_NEAR(ampAt(out4->ch[0], 9600, 32768, f * 2.0, sr) / ampAt(out4->ch[0], 9600, 32768, f, sr),
-               std::cyl_bessel_j(1, 1.5) / std::cyl_bessel_j(0, 1.5), 0.01);
+               besselJ(1, 1.5) / besselJ(0, 1.5), 0.01);
 }
 
 TEST(sextet_every_algorithm_is_the_matrix_it_stands_for) {

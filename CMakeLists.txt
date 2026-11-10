@@ -1,4 +1,15 @@
 cmake_minimum_required(VERSION 3.24)
+
+# macOS: 11 (Big Sur) and later, the first to run natively on Apple silicon. PULP_UNIVERSAL builds one
+# program for both Apple silicon and Intel Macs. Both must be set before project().
+if(APPLE)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS PULP runs on")
+  option(PULP_UNIVERSAL "macOS: build for Apple silicon and Intel in one program" OFF)
+  if(PULP_UNIVERSAL)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
+  endif()
+endif()
+
 project(PULP VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -22,6 +33,16 @@ if(MSVC)
     add_compile_options(/fsanitize=address /Zi)
     add_link_options(/INCREMENTAL:NO)
   endif()
+else()
+  # Clang / GCC. The tests compare samples bit for bit across block sizes and against the plain C++
+  # versions of the SIMD loops, so a multiply and an add are never fused into one rounding (what
+  # /fp:precise does with MSVC). _DEBUG marks a Debug build as MSVC does: the tests run fewer trials.
+  add_compile_options(-ffp-contract=off $<$<CONFIG:Debug>:-D_DEBUG>)
+  if(PULP_ASAN)
+    # stands in for MSVC's checked debug heap: overruns, use after free, leaks and undefined behaviour
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+  endif()
 endif()
 
 # ---------------------------------------------------------------- engine
@@ -34,6 +55,8 @@ add_library(pulp_engine STATIC ${PULP_ENGINE_SRC})
 target_include_directories(pulp_engine PUBLIC "${CMAKE_SOURCE_DIR}/engine/include")
 if(MSVC)
   target_compile_options(pulp_engine PRIVATE /W4 /wd4100 /wd4244 /wd4267 /wd4305 /wd4456 /wd4458 /wd4459 /fp:precise)
+else()
+  target_compile_options(pulp_engine PRIVATE -Wall -Wno-unused-parameter -Wno-unused-const-variable -Wno-unused-private-field)
 endif()
 
 # ---------------------------------------------------------------- render
@@ -67,21 +90,32 @@ if(PULP_BUILD_APP)
 
   file(GLOB_RECURSE PULP_APP_SRC CONFIGURE_DEPENDS
        "${CMAKE_SOURCE_DIR}/app/*.cpp" "${CMAKE_SOURCE_DIR}/app/*.h")
+  # On macOS this is PULP.app. Its Info.plist claims .pulp and .pulpz files, so the Finder opens
+  # them with PULP, and asks once for the microphone (recording needs it).
   juce_add_gui_app(pulp_app
     PRODUCT_NAME "PULP"
     COMPANY_NAME "PULP"
     VERSION ${PROJECT_VERSION}
+    BUNDLE_ID "org.pulp.PULP"
+    DOCUMENT_EXTENSIONS pulp pulpz
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "PULP records from your audio inputs: vocals, instruments and the latency calibration clicks."
+    HARDENED_RUNTIME_ENABLED TRUE
+    HARDENED_RUNTIME_OPTIONS com.apple.security.device.audio-input com.apple.security.cs.disable-library-validation
+    PLIST_TO_MERGE "<plist><dict><key>LSApplicationCategoryType</key><string>public.app-category.music</string><key>LSMinimumSystemVersion</key><string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string></dict></plist>"
     NEEDS_CURL FALSE
     NEEDS_WEB_BROWSER FALSE)
   target_sources(pulp_app PRIVATE ${PULP_APP_SRC})
   target_include_directories(pulp_app PRIVATE "${CMAKE_SOURCE_DIR}/app")
+  if(WIN32)
+    target_compile_definitions(pulp_app PRIVATE JUCE_ASIO=1 JUCE_WASAPI=1 JUCE_WASAPI_EXCLUSIVE=1 JUCE_DIRECTSOUND=0)
+  elseif(APPLE)
+    # Core Audio and Core MIDI are JUCE's only drivers on a Mac; Audio Units are hosted beside VST3
+    target_compile_definitions(pulp_app PRIVATE JUCE_PLUGINHOST_AU=1)
+  endif()
   target_compile_definitions(pulp_app PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
-    JUCE_ASIO=1
-    JUCE_WASAPI=1
-    JUCE_WASAPI_EXCLUSIVE=1
-    JUCE_DIRECTSOUND=0
     JUCE_PLUGINHOST_VST3=1
     JUCE_REPORT_APP_USAGE=0
     JUCE_STRICT_REFCOUNTEDPOINTER=1
@@ -97,12 +131,26 @@ if(PULP_BUILD_APP)
   # Two small VST3 plugins for checking the plugin hosting (build.bat testplugins); never part of dist.
   add_subdirectory(tools/testplugins "${CMAKE_BINARY_DIR}/testplugins" EXCLUDE_FROM_ALL)
 
-  # dist: a folder that runs on its own when PULP.exe is double-clicked.
-  add_custom_target(dist
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/dist/PULP"
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:pulp_app>" "${CMAKE_SOURCE_DIR}/dist/PULP/PULP.exe"
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:pulp_render>" "${CMAKE_SOURCE_DIR}/dist/PULP/pulp_render.exe"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${CMAKE_SOURCE_DIR}/factory" "${CMAKE_SOURCE_DIR}/dist/PULP/factory"
-    DEPENDS pulp_app pulp_render factory
-    COMMENT "Copying PULP into dist/PULP")
+  if(APPLE)
+    # dist: dist/PULP/PULP.app holds everything (the factory library in Contents/Resources), so it
+    # can be dragged into Applications. pulp_render, the command-line renderer, sits beside it.
+    # build.sh signs the bundle afterwards (ad hoc, or with PULP_SIGN_IDENTITY).
+    add_custom_target(dist
+      COMMAND ${CMAKE_COMMAND} -E rm -rf "${CMAKE_SOURCE_DIR}/dist/PULP/PULP.app"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/dist/PULP"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory "$<TARGET_BUNDLE_DIR:pulp_app>" "${CMAKE_SOURCE_DIR}/dist/PULP/PULP.app"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/factory" "${CMAKE_SOURCE_DIR}/dist/PULP/PULP.app/Contents/Resources/factory"
+      COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:pulp_render>" "${CMAKE_SOURCE_DIR}/dist/PULP/pulp_render"
+      DEPENDS pulp_app pulp_render factory
+      COMMENT "Copying PULP.app into dist/PULP")
+  else()
+    # dist: a folder that runs on its own when PULP.exe is double-clicked.
+    add_custom_target(dist
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/dist/PULP"
+      COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:pulp_app>" "${CMAKE_SOURCE_DIR}/dist/PULP/PULP.exe"
+      COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:pulp_render>" "${CMAKE_SOURCE_DIR}/dist/PULP/pulp_render.exe"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different "${CMAKE_SOURCE_DIR}/factory" "${CMAKE_SOURCE_DIR}/dist/PULP/factory"
+      DEPENDS pulp_app pulp_render factory
+      COMMENT "Copying PULP into dist/PULP")
+  endif()
 endif()

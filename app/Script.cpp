@@ -43,6 +43,18 @@ void ScriptRunner::timerCallback() {
 
 // Sends a synthetic press / drag / release to whatever component is at a point, without
 // moving the real mouse. Coordinates are relative to root.
+// A key written in a script ("ctrl + S"). Scripts are written with Windows key names; the program's
+// Ctrl shortcuts are Command shortcuts on a Mac, so there "ctrl" is read as Command.
+static juce::KeyPress scriptKey(const juce::String& desc) {
+#if JUCE_MAC
+    auto words = juce::StringArray::fromTokens(desc, " ", "");
+    for (auto& w : words) if (w.equalsIgnoreCase("ctrl") || w.equalsIgnoreCase("control")) w = "command";
+    return juce::KeyPress::createFromDescription(words.joinIntoString(" "));
+#else
+    return juce::KeyPress::createFromDescription(desc);
+#endif
+}
+
 static void sendMouse(juce::Component& root, juce::Point<float> from, juce::Point<float> to, juce::ModifierKeys mods, bool drag, int clicks) {
     auto* target = root.getComponentAt(from.toInt());
     if (target == nullptr) target = &root;
@@ -77,7 +89,7 @@ bool ScriptRunner::run(const juce::String& line) {
         int flags = juce::ModifierKeys::leftButtonModifier;
         for (int i = firstArg; i < args.size(); ++i) {
             if (args[i] == "right") flags = (flags & ~juce::ModifierKeys::leftButtonModifier) | juce::ModifierKeys::rightButtonModifier;
-            else if (args[i] == "ctrl") flags |= juce::ModifierKeys::ctrlModifier;
+            else if (args[i] == "ctrl") flags |= juce::ModifierKeys::commandModifier;       // Command on a Mac
             else if (args[i] == "shift") flags |= juce::ModifierKeys::shiftModifier;
             else if (args[i] == "alt") flags |= juce::ModifierKeys::altModifier;
         }
@@ -96,7 +108,7 @@ bool ScriptRunner::run(const juce::String& line) {
     else if (cmd == "key") {
         auto desc = line.fromFirstOccurrenceOf(" ", false, false).trim();
         if (desc.endsWithIgnoreCase("space")) desc += "bar";
-        const auto k = juce::KeyPress::createFromDescription(desc);
+        const auto k = scriptKey(desc);
         if (!k.isValid()) fail("bad key");
         else {
             // deliver to the focused component first, like a real key press, then up its parents
@@ -109,7 +121,7 @@ bool ScriptRunner::run(const juce::String& line) {
     else if (cmd == "keyto" && args.size() >= 3) {          // keyto <target> <key>: as if that window had the focus
         auto desc = line.fromFirstOccurrenceOf(args[1], false, false).trim();
         if (desc.endsWithIgnoreCase("space")) desc += "bar";
-        const auto k = juce::KeyPress::createFromDescription(desc);
+        const auto k = scriptKey(desc);
         auto* c = main_.findTarget(args[1]);
         if (!k.isValid() || !c) fail("bad key or target");
         else {
@@ -428,7 +440,7 @@ bool ScriptRunner::run(const juce::String& line) {
             for (int i = 0; i < (int)sc.commands().size(); ++i) if (sc.commands()[(size_t)i].id == args[1]) index = i;
             if (index < 0 || args.size() < 3) fail("no such command");
             else {
-                const auto loser = sc.assign(index, args[2] == "none" ? juce::KeyPress() : juce::KeyPress::createFromDescription(args[2]));
+                const auto loser = sc.assign(index, args[2] == "none" ? juce::KeyPress() : scriptKey(args[2]));
                 log("shortcut " + args[1] + " = " + Shortcuts::describe(sc.commands()[(size_t)index].key) + (loser.isEmpty() ? juce::String() : " (taken from " + loser + ")"));
             }
         }
@@ -675,7 +687,12 @@ bool ScriptRunner::run(const juce::String& line) {
     else if (cmd == "dump" && args.size() >= 2) file(args[1]).replaceWithText(juce::String(s.project.toJson().dump(1)));
     else if (cmd == "devices") log(s.describeDevices());
     else if (cmd == "device" && args.size() >= 2) {
-        const auto err = s.openDevice(args[1], args[2], args[3].getDoubleValue(), args[4].getIntValue());
+        auto type = args[1], name = args[2];
+       #if JUCE_MAC
+        // scripts written on Windows name its drivers: the Mac has Core Audio, on its default device
+        if (type == "Windows Audio" || type == "ASIO" || type.startsWith("Windows Audio")) { type = "CoreAudio"; name = {}; }
+       #endif
+        const auto err = s.openDevice(type, name, args[3].getDoubleValue(), args[4].getIntValue());
         log("device: " + (err.isEmpty() ? s.deviceSummary() : "FAILED " + err));
         if (err.isNotEmpty()) ++errors_;
     }

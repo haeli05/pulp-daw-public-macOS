@@ -23,6 +23,7 @@ public:
     juce::String assign(int index, juce::KeyPress key);
     void resetAll();
     static juce::String describe(const juce::KeyPress& k);
+    std::function<void()> onChanged;        // a key was changed or the keys were loaded (the macOS menu bar shows them)
 
 private:
     static juce::File file();

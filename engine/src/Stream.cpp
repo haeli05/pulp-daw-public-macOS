@@ -1,5 +1,6 @@
 #include "pulp/Stream.h"
 #include <cstdio>
+#include "FileIo.h"
 #include <thread>
 
 namespace pulp {
@@ -75,7 +76,7 @@ std::shared_ptr<AudioStream> AudioStream::open(const std::string& path, std::str
     const int chunk = kOverviewBin * 64;
     std::vector<unsigned char> raw((size_t)chunk * info.blockAlign);
     std::vector<float> l((size_t)chunk), r((size_t)chunk);
-    _fseeki64(f, info.dataOffset, SEEK_SET);
+    fileio::seek(f, info.dataOffset, SEEK_SET);
     for (int64 at = 0; at < s->frames;) {
         const int want = (int)std::min<int64>(chunk, s->frames - at);
         const int got = (int)(fread(raw.data(), info.blockAlign, (size_t)want, f));
@@ -110,7 +111,7 @@ bool AudioStream::loadPage(int page) {
     size_t got = 0;
     {
         std::lock_guard<std::mutex> g(fileMutex_);
-        _fseeki64((FILE*)file_, info_.dataOffset + first * (int64)info_.blockAlign, SEEK_SET);
+        fileio::seek((FILE*)file_, info_.dataOffset + first * (int64)info_.blockAlign, SEEK_SET);
         got = fread(raw.data(), info_.blockAlign, (size_t)n, (FILE*)file_);
     }
     decodeWavFrames(raw.data(), info_, got, buf, channels > 1 ? buf + pageFrames_ : nullptr);

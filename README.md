@@ -1,4 +1,8 @@
-# PULP
+# PULP (macOS)
+
+> This is a macOS port of [AlexAtFF/pulp-daw-public](https://github.com/AlexAtFF/pulp-daw-public). It adds
+> Core Audio, Audio Unit hosting, Command-key shortcuts, a native menu bar, an Apple silicon (NEON) build of the
+> synth's inner loop and a `.app` bundle. The Windows build is unchanged. See "Run it on a Mac" below.
 
 A native Windows music program in the FL Studio mould: Channel Rack with a step sequencer, Piano Roll,
 Playlist, Mixer with effects, Browser, undo history, autosave and WAV export. It is a real program
@@ -37,6 +41,53 @@ Studio 2022 C++ Build Tools (the free "Desktop development with C++" workload) a
 | `build.bat testplugins` | two small VST3 plugins used only by the hosting check (`scripts\m10_vst3.txt`) |
 | `build.bat library` | downloads the recordings for the factory instruments (about 420 MB, once) and rebuilds the library |
 | `dist\PULP\pulp_render.exe song.pulp out.wav` | render a project with no window and no sound card |
+
+## Run it on a Mac
+
+PULP also builds as a native macOS program (macOS 11 or later, Apple silicon or Intel): `dist/PULP/PULP.app`,
+with the factory library inside the bundle. Drag it into Applications if you like; double-clicking a
+`.pulp` file in the Finder opens it in PULP.
+
+To build it you need the Xcode command line tools (`xcode-select --install`), CMake 3.24 or later
+(`brew install cmake`), and Python 3 for the recorded part of the factory library. Ninja is used if it is
+installed. `./build.sh` takes the same commands as `build.bat`:
+
+| Command | What it does |
+|---------|--------------|
+| `./build.sh` | release build of everything, runs the tests, fills `dist/PULP` with `PULP.app` and `pulp_render` |
+| `./build.sh quick` | engine, renderer and tests only, runs the tests |
+| `./build.sh test` | the tests again in a Debug build |
+| `./build.sh asan` | the same with AddressSanitizer and UndefinedBehaviorSanitizer (the Mac's stand-in for the checked heap) |
+| `./build.sh app` | the program only |
+| `./build.sh universal` | as `./build.sh`, one program for both Apple silicon and Intel |
+| `./build.sh installer` | packs `dist/PULP` into `dist/PULP.dmg` |
+| `./build.sh testplugins` | the two test plugins, as VST3 and Audio Unit |
+| `./build.sh library` | downloads the recordings and rebuilds the factory library |
+
+The app is signed ad hoc, which is enough on the Mac that built it. To hand it to others, set
+`PULP_SIGN_IDENTITY` to your "Developer ID Application" identity before building: it is then signed with the
+hardened runtime (`tools/macos/PULP.entitlements`: microphone input, and loading other makers' plugins),
+ready for `xcrun notarytool`.
+
+What is different on a Mac:
+
+- **Keys.** Every Ctrl shortcut is a Command shortcut (Cmd+S saves, Cmd+Z undoes, Cmd-drag selects) and Alt is
+  Option. The hint bar, menus and Settings > SHORTCUTS name the Mac keys. Two standard keys belong to macOS, so
+  they differ: Pause is Control+Space (Command+Space is Spotlight) and Stop all sound is Cmd+. (Command+H
+  hides the program). The Delete key (backspace) deletes notes and clips. Control-click is a right-click.
+  The F keys need fn unless "Use F1, F2, etc. keys as standard function keys" is on in System Settings > Keyboard.
+- **Menu bar.** Every command in the shortcut table is also in the menu bar (File, Edit, Transport, Patterns,
+  Window, Help), showing whatever key it has now. PULP > Settings... (Cmd+,) opens the settings.
+- **Audio.** Core Audio is the only driver. The first run opens the system's default output and input with a
+  256-sample buffer. macOS asks once for permission to use the microphone; recording needs it (System
+  Settings > Privacy & Security > Microphone if it was refused). To use several interfaces at once, make an
+  aggregate device in Audio MIDI Setup.
+- **Plugins.** Audio Units are hosted beside VST3. FIND PLUGINS examines every Audio Unit the system knows and
+  the VST3s in `/Library/Audio/Plug-Ins/VST3` and `~/Library/Audio/Plug-Ins/VST3`.
+- **Files.** Settings, autosaves and the plugin list are in `~/Library/Application Support/PULP` instead of
+  `%APPDATA%\PULP`. Projects move between Windows and Mac unchanged; a VST3 plugin is found again on the
+  other system if it is installed there too.
+- **Not on a Mac yet:** the `vstshot` script command, which pictures a plugin's own window with a Windows call.
 
 ## Pick the audio device
 

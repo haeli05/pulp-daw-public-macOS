@@ -449,6 +449,29 @@ bool PluginHost::captureWindow(int index, const juce::File& png) const {
 
 // ------------------------------------------------------------------ PluginHost
 
+// A hosted plugin's type id is "vst3:" or "au:" and then JUCE's identifier string for it. The
+// prefix says which format; VST3 ids are unchanged from before Audio Units were hosted, so
+// projects saved earlier open as they did.
+namespace {
+std::string prefixFor(const juce::PluginDescription& d) { return d.pluginFormatName == "AudioUnit" ? "au:" : "vst3:"; }
+juce::String formatLabel(const juce::PluginDescription& d) { return d.pluginFormatName == "AudioUnit" ? "AU" : d.pluginFormatName; }
+size_t prefixLength(const std::string& typeId) {
+    if (typeId.rfind("vst3:", 0) == 0) return 5;
+    if (typeId.rfind("au:", 0) == 0) return 3;
+    return 0;
+}
+// The format that reads a scanned item: Audio Units are named by an "AudioUnit:..." identifier,
+// VST3s by their file.
+std::unique_ptr<juce::AudioPluginFormat> formatForItem(const juce::String& item) {
+   #if JUCE_PLUGINHOST_AU && JUCE_MAC
+    if (item.startsWith("AudioUnit:")) return std::make_unique<juce::AudioUnitPluginFormat>();
+   #else
+    juce::ignoreUnused(item);
+   #endif
+    return std::make_unique<juce::VST3PluginFormat>();
+}
+}
+
 PluginHost& PluginHost::get() { static PluginHost h; return h; }
 
 juce::File PluginHost::listFile() { return Session::dataDir().getChildFile("plugins.xml"); }
@@ -457,6 +480,9 @@ void PluginHost::start() {
     if (j_) return;
     j_ = std::make_unique<Juce>();
     j_->formats.addFormat(std::make_unique<juce::VST3PluginFormat>());
+   #if JUCE_PLUGINHOST_AU && JUCE_MAC
+    j_->formats.addFormat(std::make_unique<juce::AudioUnitPluginFormat>());
+   #endif
     load();
     pulp::PluginRegistry::global().setExternalFactory([this](const std::string& id) { return create(id); });
 }
@@ -501,7 +527,7 @@ std::vector<PluginHost::Entry> PluginHost::plugins() const {
     std::vector<Entry> out;
     if (!j_) return out;
     for (auto& d : j_->known.getTypes())
-        out.push_back({"vst3:" + d.createIdentifierString().toStdString(), d.name, d.manufacturerName, d.fileOrIdentifier, d.isInstrument});
+        out.push_back({prefixFor(d) + d.createIdentifierString().toStdString(), d.name, d.manufacturerName, d.fileOrIdentifier, d.isInstrument, formatLabel(d)});
     std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) { return a.name.compareIgnoreCase(b.name) < 0; });
     return out;
 }
@@ -513,7 +539,7 @@ std::string PluginHost::findByName(const juce::String& part) const {
 
 void PluginHost::forget(const std::string& typeId) {
     if (!j_) return;
-    if (auto d = j_->known.getTypeForIdentifierString(juce::String(typeId.substr(juce::jmin((size_t)5, typeId.size()))))) j_->known.removeType(*d);
+    if (auto d = j_->known.getTypeForIdentifierString(juce::String(typeId.substr(prefixLength(typeId))))) j_->known.removeType(*d);
     save();
     if (onListChanged) onListChanged();
 }
@@ -527,7 +553,7 @@ void PluginHost::beginReuse(const pulp::Project& project) {
 void PluginHost::endReuse() { reuse_.clear(); }
 
 std::shared_ptr<pulp::Plugin> PluginHost::create(const std::string& typeId) {
-    if (!j_ || typeId.rfind("vst3:", 0) != 0) return nullptr;
+    if (!j_ || prefixLength(typeId) == 0) return nullptr;
     // plugins are made on the interface thread; a render on another thread asks it to do so and waits
     if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) {
         struct Call { PluginHost* host; const std::string* id; std::shared_ptr<pulp::Plugin> result; };
@@ -541,7 +567,7 @@ std::shared_ptr<pulp::Plugin> PluginHost::create(const std::string& typeId) {
     }
     for (size_t i = 0; i < reuse_.size(); ++i)
         if (typeId == reuse_[i]->typeId()) { auto p = reuse_[i]; reuse_.erase(reuse_.begin() + (std::ptrdiff_t)i); return p; }
-    const auto desc = j_->known.getTypeForIdentifierString(juce::String(typeId.substr(5)));
+    const auto desc = j_->known.getTypeForIdentifierString(juce::String(typeId.substr(prefixLength(typeId))));
     if (!desc) return nullptr;
     juce::String error;
     auto instance = j_->formats.createPluginInstance(*desc, 48000.0, pulp::kQuantum, error);
@@ -553,15 +579,21 @@ juce::StringArray PluginHost::defaultFiles() const {
     juce::VST3PluginFormat format;
     auto paths = format.getDefaultLocationsToSearch();
     for (auto& f : folders) paths.addIfNotAlreadyThere(juce::File(f));
-    return format.searchPathsForPlugins(paths, true, false);
+    auto items = format.searchPathsForPlugins(paths, true, false);
+   #if JUCE_PLUGINHOST_AU && JUCE_MAC
+    // Audio Units are registered with the system rather than found in folders
+    juce::AudioUnitPluginFormat au;
+    items.addArray(au.searchPathsForPlugins(au.getDefaultLocationsToSearch(), true, false));
+   #endif
+    return items;
 }
 
 // What the child process does: look inside one plugin file and write down what it holds.
 int PluginHost::runScanChild(const juce::String& file, const juce::File& out) {
     if (file.contains("pulp-crash-test")) { volatile int* p = nullptr; *p = 1; }       // lets the crash handling be tested
-    juce::VST3PluginFormat format;
+    auto format = formatForItem(file);
     juce::OwnedArray<juce::PluginDescription> found;
-    format.findAllTypesForFile(found, file);
+    format->findAllTypesForFile(found, file);
     juce::XmlElement root("SCAN");
     for (auto* d : found) root.addChildElement(d->createXml().release());
     return root.writeTo(out) ? 0 : 2;
@@ -579,7 +611,8 @@ public:
         juce::StringArray bad;
         for (int i = 0; i < files_.size() && !threadShouldExit(); ++i) {
             const auto file = files_[i];
-            const auto name = juce::File::createFileWithoutCheckingPath(file).getFileName();
+            const auto name = file.startsWith("AudioUnit:") ? "Audio Unit " + file.fromFirstOccurrenceOf("/", false, false)
+                                                            : juce::File::createFileWithoutCheckingPath(file).getFileName();
             auto progress = progress_;
             juce::MessageManager::callAsync([progress, name, i, n = files_.size()] { if (progress) progress("Scanning " + juce::String(i + 1) + " of " + juce::String(n) + ": " + name); });
             const auto out = temp.getNonexistentChildFile("pulp-scan", ".xml", false);

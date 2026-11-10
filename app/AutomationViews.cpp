@@ -415,7 +415,7 @@ SettingsPages::SettingsPages(Session& s) : audio_(s), midi_(s), plugins_(s) {
     audioTab_.text = "AUDIO";
     midiTab_.text = "MIDI";
     pluginTab_.text = "PLUGINS";
-    pluginTab_.setTooltip("VST3 plugins: find them, see which were found and which failed");
+    pluginTab_.setTooltip(PULP_PLUGIN_KINDS " plugins: find them, see which were found and which failed");
     pluginTab_.onClick = [this] { showPage(2); };
     addAndMakeVisible(pluginTab_);
     addChildComponent(plugins_);

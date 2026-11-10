@@ -1,5 +1,5 @@
 // PULP: program entry point, main window and command line.
-//   PULP.exe [project.pulp]
+//   PULP.exe [project.pulp]          (macOS: PULP.app/Contents/MacOS/PULP [project.pulp])
 //   --project <file>   open a project
 //   --script <file>    run a script of interface actions (docs/SCRIPTING.md)
 //   --log <file>       where script output goes
@@ -7,10 +7,12 @@
 //   --size <w>x<h>     window size
 //   --data-dir <dir>   keep settings, autosaves and the crash log here (tests)
 //   --layout           a scripted run keeps and restores window places like a normal run (tests)
-//   --scan-vst3 <plugin file> <result file>   look inside one plugin and exit (run by the plugin scanner)
+//   --scan-vst3 <plugin file> <result file>   look inside one plugin and exit (run by the plugin scanner;
+//                                             on macOS the "file" may also be an "AudioUnit:..." identifier)
 #include "MainComponent.h"
 #include "Script.h"
 #include "PluginHost.h"
+#include "MacMenu.h"
 #if JUCE_WINDOWS
  #include <windows.h>
 #endif
@@ -59,6 +61,8 @@ public:
         if (const int i = args.indexOf("--scan-vst3"); i >= 0 && i + 2 < args.size()) {
            #if JUCE_WINDOWS
             SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+           #elif JUCE_MAC
+            juce::Process::setDockIconVisible(false);       // the scanner is not a program the user sees
            #endif
             setApplicationReturnValue(PluginHost::runScanChild(args[i + 1].unquoted(), juce::File(args[i + 2].unquoted())));
             quit();
@@ -86,6 +90,9 @@ public:
         session->beginRunLock();
         session->start(noAudio);
         window = std::make_unique<MainWindow>(*session, size);
+       #if JUCE_MAC
+        menuBar = std::make_unique<MacMenuBar>(*window->main);
+       #endif
 
         // a project named on the command line (double-clicking a .pulp file arrives this way)
         juce::String toOpen = value("--project");
@@ -101,7 +108,25 @@ public:
         } else { window->main->checkCrashRecovery(); window->main->checkFirstRun(); }
     }
 
+    // macOS hands over files opened from the Finder (double-click, drop on the Dock icon, Open With)
+    // this way, at start-up as well as while running.
+    void anotherInstanceStarted(const juce::String& commandLine) override {
+        if (!window || !session || runner) return;
+        juce::StringArray args;
+        args.addTokens(commandLine, true);
+        for (auto& a : args) {
+            const juce::File f(a.unquoted());
+            if (f.existsAsFile() && (f.hasFileExtension("pulp") || f.hasFileExtension("pulpz"))) {
+                window->main->ifSafeToDiscard([s = session.get(), f] { s->openProject(f); s->notify(); });
+                break;
+            }
+        }
+    }
+
     void shutdown() override {
+       #if JUCE_MAC
+        menuBar.reset();
+       #endif
         if (session) { session->saveDeviceSettings(); session->shutdown(); session->endRunLock(); }
         runner.reset();
         PluginHost::get().closeWindows();
@@ -121,6 +146,9 @@ private:
     std::unique_ptr<Session> session;
     std::unique_ptr<MainWindow> window;
     std::unique_ptr<ScriptRunner> runner;
+   #if JUCE_MAC
+    std::unique_ptr<MacMenuBar> menuBar;
+   #endif
 };
 
 START_JUCE_APPLICATION(PulpApp)

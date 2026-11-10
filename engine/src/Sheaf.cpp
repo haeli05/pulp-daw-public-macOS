@@ -1,9 +1,40 @@
 #include "pulp/Sheaf.h"
 #include "pulp/Multisample.h"
 
+// Four floats per instruction: SSE2 on x86-64, NEON on ARM64 (Apple silicon). The kernel below is
+// written once against these few operations, so both give the same samples as the scalar version.
 #if defined(_M_X64) || defined(__SSE2__)
 #include <emmintrin.h>
-#define PULP_SHEAF_SSE 1
+#define PULP_SHEAF_SIMD 1
+namespace pulp { namespace {
+using v4 = __m128;
+inline v4 ld(const float* p) { return _mm_loadu_ps(p); }
+inline void st(float* p, v4 v) { _mm_storeu_ps(p, v); }
+inline v4 splat(float x) { return _mm_set1_ps(x); }
+inline v4 add(v4 a, v4 b) { return _mm_add_ps(a, b); }
+inline v4 sub(v4 a, v4 b) { return _mm_sub_ps(a, b); }
+inline v4 mul(v4 a, v4 b) { return _mm_mul_ps(a, b); }
+inline float hsum(v4 v) {                                    // (lane 0 + lane 2) + (lane 1 + lane 3)
+    const v4 h = _mm_add_ps(v, _mm_movehl_ps(v, v));
+    return _mm_cvtss_f32(_mm_add_ss(h, _mm_shuffle_ps(h, h, 1)));
+}
+} }
+#elif defined(__ARM_NEON) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define PULP_SHEAF_SIMD 1
+namespace pulp { namespace {
+using v4 = float32x4_t;
+inline v4 ld(const float* p) { return vld1q_f32(p); }
+inline void st(float* p, v4 v) { vst1q_f32(p, v); }
+inline v4 splat(float x) { return vdupq_n_f32(x); }
+inline v4 add(v4 a, v4 b) { return vaddq_f32(a, b); }
+inline v4 sub(v4 a, v4 b) { return vsubq_f32(a, b); }
+inline v4 mul(v4 a, v4 b) { return vmulq_f32(a, b); }
+inline float hsum(v4 v) {                                    // (lane 0 + lane 2) + (lane 1 + lane 3)
+    const float32x2_t h = vadd_f32(vget_low_f32(v), vget_high_f32(v));
+    return vget_lane_f32(h, 0) + vget_lane_f32(h, 1);
+}
+} }
 #endif
 
 namespace pulp {
@@ -81,7 +112,7 @@ inline float bellCurve(float x) { const float d = 1.0f + x * x; return 1.0f / (d
 // Each oscillator is a point going round the unit circle: (c, s) is turned by (cw, sw) every sample and
 // s is the sine. Its level runs in a straight line from cur to tgt over the n samples. count is a
 // multiple of four. The two versions do the same arithmetic in the same order, so they give the same
-// samples; the SSE one does four oscillators per instruction and two such groups per pass.
+// samples; the SIMD one does four oscillators per instruction and two such groups per pass.
 void bankScalar(float* c, float* s, const float* cw, const float* sw, float* cur, const float* tgt, int count, int n, float* out) {
     float acc[kQuantum][4];
     for (int t = 0; t < n; ++t) acc[t][0] = acc[t][1] = acc[t][2] = acc[t][3] = 0.0f;
@@ -109,97 +140,94 @@ void bankScalar(float* c, float* s, const float* cw, const float* sw, float* cur
     for (int t = 0; t < n; ++t) out[t] = (acc[t][0] + acc[t][2]) + (acc[t][1] + acc[t][3]);
 }
 
-#ifdef PULP_SHEAF_SSE
-void bankSse(float* c, float* s, const float* cw, const float* sw, float* cur, const float* tgt, int count, int n, float* out) {
-    __m128 acc[kQuantum];
-    for (int t = 0; t < n; ++t) acc[t] = _mm_setzero_ps();
-    const __m128 invN = _mm_set1_ps(1.0f / (float)n), k15 = _mm_set1_ps(1.5f), k05 = _mm_set1_ps(0.5f);
+#ifdef PULP_SHEAF_SIMD
+void bankSimd(float* c, float* s, const float* cw, const float* sw, float* cur, const float* tgt, int count, int n, float* out) {
+    v4 acc[kQuantum];
+    for (int t = 0; t < n; ++t) acc[t] = splat(0.0f);
+    const v4 invN = splat(1.0f / (float)n), k15 = splat(1.5f), k05 = splat(0.5f);
     int j = 0;
     // sixteen oscillators at a time: each group of four waits on its own last result, so four groups in
     // step keep the processor busy where one would leave it waiting
     for (; j + 16 <= count; j += 16) {
-        __m128 c0 = _mm_loadu_ps(c + j), c1 = _mm_loadu_ps(c + j + 4), c2 = _mm_loadu_ps(c + j + 8), c3 = _mm_loadu_ps(c + j + 12);
-        __m128 s0 = _mm_loadu_ps(s + j), s1 = _mm_loadu_ps(s + j + 4), s2 = _mm_loadu_ps(s + j + 8), s3 = _mm_loadu_ps(s + j + 12);
-        const __m128 cw0 = _mm_loadu_ps(cw + j), cw1 = _mm_loadu_ps(cw + j + 4), cw2 = _mm_loadu_ps(cw + j + 8), cw3 = _mm_loadu_ps(cw + j + 12);
-        const __m128 sw0 = _mm_loadu_ps(sw + j), sw1 = _mm_loadu_ps(sw + j + 4), sw2 = _mm_loadu_ps(sw + j + 8), sw3 = _mm_loadu_ps(sw + j + 12);
-        const __m128 k0 = _mm_sub_ps(k15, _mm_mul_ps(k05, _mm_add_ps(_mm_mul_ps(c0, c0), _mm_mul_ps(s0, s0))));
-        const __m128 k1 = _mm_sub_ps(k15, _mm_mul_ps(k05, _mm_add_ps(_mm_mul_ps(c1, c1), _mm_mul_ps(s1, s1))));
-        const __m128 k2 = _mm_sub_ps(k15, _mm_mul_ps(k05, _mm_add_ps(_mm_mul_ps(c2, c2), _mm_mul_ps(s2, s2))));
-        const __m128 k3 = _mm_sub_ps(k15, _mm_mul_ps(k05, _mm_add_ps(_mm_mul_ps(c3, c3), _mm_mul_ps(s3, s3))));
-        c0 = _mm_mul_ps(c0, k0); s0 = _mm_mul_ps(s0, k0);
-        c1 = _mm_mul_ps(c1, k1); s1 = _mm_mul_ps(s1, k1);
-        c2 = _mm_mul_ps(c2, k2); s2 = _mm_mul_ps(s2, k2);
-        c3 = _mm_mul_ps(c3, k3); s3 = _mm_mul_ps(s3, k3);
-        __m128 a0 = _mm_loadu_ps(cur + j), a1 = _mm_loadu_ps(cur + j + 4), a2 = _mm_loadu_ps(cur + j + 8), a3 = _mm_loadu_ps(cur + j + 12);
-        const __m128 t0 = _mm_loadu_ps(tgt + j), t1 = _mm_loadu_ps(tgt + j + 4), t2 = _mm_loadu_ps(tgt + j + 8), t3 = _mm_loadu_ps(tgt + j + 12);
-        const __m128 d0 = _mm_mul_ps(_mm_sub_ps(t0, a0), invN), d1 = _mm_mul_ps(_mm_sub_ps(t1, a1), invN);
-        const __m128 d2 = _mm_mul_ps(_mm_sub_ps(t2, a2), invN), d3 = _mm_mul_ps(_mm_sub_ps(t3, a3), invN);
+        v4 c0 = ld(c + j), c1 = ld(c + j + 4), c2 = ld(c + j + 8), c3 = ld(c + j + 12);
+        v4 s0 = ld(s + j), s1 = ld(s + j + 4), s2 = ld(s + j + 8), s3 = ld(s + j + 12);
+        const v4 cw0 = ld(cw + j), cw1 = ld(cw + j + 4), cw2 = ld(cw + j + 8), cw3 = ld(cw + j + 12);
+        const v4 sw0 = ld(sw + j), sw1 = ld(sw + j + 4), sw2 = ld(sw + j + 8), sw3 = ld(sw + j + 12);
+        const v4 k0 = sub(k15, mul(k05, add(mul(c0, c0), mul(s0, s0))));
+        const v4 k1 = sub(k15, mul(k05, add(mul(c1, c1), mul(s1, s1))));
+        const v4 k2 = sub(k15, mul(k05, add(mul(c2, c2), mul(s2, s2))));
+        const v4 k3 = sub(k15, mul(k05, add(mul(c3, c3), mul(s3, s3))));
+        c0 = mul(c0, k0); s0 = mul(s0, k0);
+        c1 = mul(c1, k1); s1 = mul(s1, k1);
+        c2 = mul(c2, k2); s2 = mul(s2, k2);
+        c3 = mul(c3, k3); s3 = mul(s3, k3);
+        v4 a0 = ld(cur + j), a1 = ld(cur + j + 4), a2 = ld(cur + j + 8), a3 = ld(cur + j + 12);
+        const v4 t0 = ld(tgt + j), t1 = ld(tgt + j + 4), t2 = ld(tgt + j + 8), t3 = ld(tgt + j + 12);
+        const v4 d0 = mul(sub(t0, a0), invN), d1 = mul(sub(t1, a1), invN);
+        const v4 d2 = mul(sub(t2, a2), invN), d3 = mul(sub(t3, a3), invN);
         for (int t = 0; t < n; ++t) {
-            a0 = _mm_add_ps(a0, d0);
-            a1 = _mm_add_ps(a1, d1);
-            a2 = _mm_add_ps(a2, d2);
-            a3 = _mm_add_ps(a3, d3);
-            acc[t] = _mm_add_ps(_mm_add_ps(_mm_add_ps(_mm_add_ps(acc[t], _mm_mul_ps(a0, s0)), _mm_mul_ps(a1, s1)), _mm_mul_ps(a2, s2)), _mm_mul_ps(a3, s3));
-            const __m128 n0 = _mm_sub_ps(_mm_mul_ps(c0, cw0), _mm_mul_ps(s0, sw0));
-            const __m128 n1 = _mm_sub_ps(_mm_mul_ps(c1, cw1), _mm_mul_ps(s1, sw1));
-            const __m128 n2 = _mm_sub_ps(_mm_mul_ps(c2, cw2), _mm_mul_ps(s2, sw2));
-            const __m128 n3 = _mm_sub_ps(_mm_mul_ps(c3, cw3), _mm_mul_ps(s3, sw3));
-            s0 = _mm_add_ps(_mm_mul_ps(s0, cw0), _mm_mul_ps(c0, sw0));
-            s1 = _mm_add_ps(_mm_mul_ps(s1, cw1), _mm_mul_ps(c1, sw1));
-            s2 = _mm_add_ps(_mm_mul_ps(s2, cw2), _mm_mul_ps(c2, sw2));
-            s3 = _mm_add_ps(_mm_mul_ps(s3, cw3), _mm_mul_ps(c3, sw3));
+            a0 = add(a0, d0);
+            a1 = add(a1, d1);
+            a2 = add(a2, d2);
+            a3 = add(a3, d3);
+            acc[t] = add(add(add(add(acc[t], mul(a0, s0)), mul(a1, s1)), mul(a2, s2)), mul(a3, s3));
+            const v4 n0 = sub(mul(c0, cw0), mul(s0, sw0));
+            const v4 n1 = sub(mul(c1, cw1), mul(s1, sw1));
+            const v4 n2 = sub(mul(c2, cw2), mul(s2, sw2));
+            const v4 n3 = sub(mul(c3, cw3), mul(s3, sw3));
+            s0 = add(mul(s0, cw0), mul(c0, sw0));
+            s1 = add(mul(s1, cw1), mul(c1, sw1));
+            s2 = add(mul(s2, cw2), mul(c2, sw2));
+            s3 = add(mul(s3, cw3), mul(c3, sw3));
             c0 = n0; c1 = n1; c2 = n2; c3 = n3;
         }
-        _mm_storeu_ps(c + j, c0); _mm_storeu_ps(s + j, s0); _mm_storeu_ps(cur + j, t0);
-        _mm_storeu_ps(c + j + 4, c1); _mm_storeu_ps(s + j + 4, s1); _mm_storeu_ps(cur + j + 4, t1);
-        _mm_storeu_ps(c + j + 8, c2); _mm_storeu_ps(s + j + 8, s2); _mm_storeu_ps(cur + j + 8, t2);
-        _mm_storeu_ps(c + j + 12, c3); _mm_storeu_ps(s + j + 12, s3); _mm_storeu_ps(cur + j + 12, t3);
+        st(c + j, c0); st(s + j, s0); st(cur + j, t0);
+        st(c + j + 4, c1); st(s + j + 4, s1); st(cur + j + 4, t1);
+        st(c + j + 8, c2); st(s + j + 8, s2); st(cur + j + 8, t2);
+        st(c + j + 12, c3); st(s + j + 12, s3); st(cur + j + 12, t3);
     }
     for (; j + 8 <= count; j += 8) {
-        __m128 c0 = _mm_loadu_ps(c + j), s0 = _mm_loadu_ps(s + j), c1 = _mm_loadu_ps(c + j + 4), s1 = _mm_loadu_ps(s + j + 4);
-        const __m128 cw0 = _mm_loadu_ps(cw + j), sw0 = _mm_loadu_ps(sw + j), cw1 = _mm_loadu_ps(cw + j + 4), sw1 = _mm_loadu_ps(sw + j + 4);
-        const __m128 k0 = _mm_sub_ps(k15, _mm_mul_ps(k05, _mm_add_ps(_mm_mul_ps(c0, c0), _mm_mul_ps(s0, s0))));
-        const __m128 k1 = _mm_sub_ps(k15, _mm_mul_ps(k05, _mm_add_ps(_mm_mul_ps(c1, c1), _mm_mul_ps(s1, s1))));
-        c0 = _mm_mul_ps(c0, k0); s0 = _mm_mul_ps(s0, k0);
-        c1 = _mm_mul_ps(c1, k1); s1 = _mm_mul_ps(s1, k1);
-        __m128 a0 = _mm_loadu_ps(cur + j), a1 = _mm_loadu_ps(cur + j + 4);
-        const __m128 t0 = _mm_loadu_ps(tgt + j), t1 = _mm_loadu_ps(tgt + j + 4);
-        const __m128 d0 = _mm_mul_ps(_mm_sub_ps(t0, a0), invN), d1 = _mm_mul_ps(_mm_sub_ps(t1, a1), invN);
+        v4 c0 = ld(c + j), s0 = ld(s + j), c1 = ld(c + j + 4), s1 = ld(s + j + 4);
+        const v4 cw0 = ld(cw + j), sw0 = ld(sw + j), cw1 = ld(cw + j + 4), sw1 = ld(sw + j + 4);
+        const v4 k0 = sub(k15, mul(k05, add(mul(c0, c0), mul(s0, s0))));
+        const v4 k1 = sub(k15, mul(k05, add(mul(c1, c1), mul(s1, s1))));
+        c0 = mul(c0, k0); s0 = mul(s0, k0);
+        c1 = mul(c1, k1); s1 = mul(s1, k1);
+        v4 a0 = ld(cur + j), a1 = ld(cur + j + 4);
+        const v4 t0 = ld(tgt + j), t1 = ld(tgt + j + 4);
+        const v4 d0 = mul(sub(t0, a0), invN), d1 = mul(sub(t1, a1), invN);
         for (int t = 0; t < n; ++t) {
-            a0 = _mm_add_ps(a0, d0);
-            a1 = _mm_add_ps(a1, d1);
-            acc[t] = _mm_add_ps(_mm_add_ps(acc[t], _mm_mul_ps(a0, s0)), _mm_mul_ps(a1, s1));
-            const __m128 n0 = _mm_sub_ps(_mm_mul_ps(c0, cw0), _mm_mul_ps(s0, sw0));
-            const __m128 n1 = _mm_sub_ps(_mm_mul_ps(c1, cw1), _mm_mul_ps(s1, sw1));
-            s0 = _mm_add_ps(_mm_mul_ps(s0, cw0), _mm_mul_ps(c0, sw0));
-            s1 = _mm_add_ps(_mm_mul_ps(s1, cw1), _mm_mul_ps(c1, sw1));
+            a0 = add(a0, d0);
+            a1 = add(a1, d1);
+            acc[t] = add(add(acc[t], mul(a0, s0)), mul(a1, s1));
+            const v4 n0 = sub(mul(c0, cw0), mul(s0, sw0));
+            const v4 n1 = sub(mul(c1, cw1), mul(s1, sw1));
+            s0 = add(mul(s0, cw0), mul(c0, sw0));
+            s1 = add(mul(s1, cw1), mul(c1, sw1));
             c0 = n0;
             c1 = n1;
         }
-        _mm_storeu_ps(c + j, c0); _mm_storeu_ps(s + j, s0); _mm_storeu_ps(cur + j, t0);
-        _mm_storeu_ps(c + j + 4, c1); _mm_storeu_ps(s + j + 4, s1); _mm_storeu_ps(cur + j + 4, t1);
+        st(c + j, c0); st(s + j, s0); st(cur + j, t0);
+        st(c + j + 4, c1); st(s + j + 4, s1); st(cur + j + 4, t1);
     }
     for (; j < count; j += 4) {
-        __m128 c0 = _mm_loadu_ps(c + j), s0 = _mm_loadu_ps(s + j);
-        const __m128 cw0 = _mm_loadu_ps(cw + j), sw0 = _mm_loadu_ps(sw + j);
-        const __m128 k0 = _mm_sub_ps(k15, _mm_mul_ps(k05, _mm_add_ps(_mm_mul_ps(c0, c0), _mm_mul_ps(s0, s0))));
-        c0 = _mm_mul_ps(c0, k0); s0 = _mm_mul_ps(s0, k0);
-        __m128 a0 = _mm_loadu_ps(cur + j);
-        const __m128 t0 = _mm_loadu_ps(tgt + j);
-        const __m128 d0 = _mm_mul_ps(_mm_sub_ps(t0, a0), invN);
+        v4 c0 = ld(c + j), s0 = ld(s + j);
+        const v4 cw0 = ld(cw + j), sw0 = ld(sw + j);
+        const v4 k0 = sub(k15, mul(k05, add(mul(c0, c0), mul(s0, s0))));
+        c0 = mul(c0, k0); s0 = mul(s0, k0);
+        v4 a0 = ld(cur + j);
+        const v4 t0 = ld(tgt + j);
+        const v4 d0 = mul(sub(t0, a0), invN);
         for (int t = 0; t < n; ++t) {
-            a0 = _mm_add_ps(a0, d0);
-            acc[t] = _mm_add_ps(acc[t], _mm_mul_ps(a0, s0));
-            const __m128 n0 = _mm_sub_ps(_mm_mul_ps(c0, cw0), _mm_mul_ps(s0, sw0));
-            s0 = _mm_add_ps(_mm_mul_ps(s0, cw0), _mm_mul_ps(c0, sw0));
+            a0 = add(a0, d0);
+            acc[t] = add(acc[t], mul(a0, s0));
+            const v4 n0 = sub(mul(c0, cw0), mul(s0, sw0));
+            s0 = add(mul(s0, cw0), mul(c0, sw0));
             c0 = n0;
         }
-        _mm_storeu_ps(c + j, c0); _mm_storeu_ps(s + j, s0); _mm_storeu_ps(cur + j, t0);
+        st(c + j, c0); st(s + j, s0); st(cur + j, t0);
     }
-    for (int t = 0; t < n; ++t) {
-        const __m128 h = _mm_add_ps(acc[t], _mm_movehl_ps(acc[t], acc[t]));        // lanes 0+2 and 1+3
-        out[t] = _mm_cvtss_f32(_mm_add_ss(h, _mm_shuffle_ps(h, h, 1)));
-    }
+    for (int t = 0; t < n; ++t) out[t] = hsum(acc[t]);
 }
 #endif
 
@@ -937,8 +965,8 @@ void Sheaf::renderVoice(Voice& v, float* L, float* R, int n) {
         if (v.fresh) for (int i = 0; i < count; ++i) v.cur[base + i] = level[i];
         const float* target = still ? v.cur + base : level;
         if (count > 0) {
-#ifdef PULP_SHEAF_SSE
-            if (!forceScalar) bankSse(v.c + base, v.s + base, v.cw + base, v.sw + base, v.cur + base, target, count, n, mono);
+#ifdef PULP_SHEAF_SIMD
+            if (!forceScalar) bankSimd(v.c + base, v.s + base, v.cw + base, v.sw + base, v.cur + base, target, count, n, mono);
             else
 #endif
                 bankScalar(v.c + base, v.s + base, v.cw + base, v.sw + base, v.cur + base, target, count, n, mono);

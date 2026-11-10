@@ -16,7 +16,12 @@ juce::File Session::dataDirOverride;
 
 juce::File Session::dataDir() {
     if (dataDirOverride != juce::File()) return dataDirOverride;
+#if JUCE_MAC
+    // ~/Library/Application Support/PULP, where macOS programs keep their settings
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Application Support").getChildFile("PULP");
+#else
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("PULP");
+#endif
 }
 
 juce::String Session::projectTitle() const {

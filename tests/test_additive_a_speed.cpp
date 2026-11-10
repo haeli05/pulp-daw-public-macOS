@@ -44,7 +44,7 @@ TEST(sheaf_sixteen_notes_run_far_faster_than_real_time) {
 #endif
         s->forceScalar = true;
         const double plain = sixteenNotes(*s, seconds, 24, 1);
-        printf("    the same without SSE (plain C++ oscillator loop):          %6.1f x real time\n", plain);
+        printf("    the same without SIMD (plain C++ oscillator loop):         %6.1f x real time\n", plain);
     }
     {   // the same with vibrato (every sine retuned every 64 samples), the filter, formants and tilt all moving
         auto s = plainSheaf(Sheaf::Saw, 128);

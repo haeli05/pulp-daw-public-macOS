@@ -182,13 +182,22 @@ void MainComponent::loadLayout() {
 // Every program-wide command and its standard key (the reference program's defaults).
 void MainComponent::registerShortcuts() {
     using K = juce::KeyPress;
-    const auto ctrl = juce::ModifierKeys(juce::ModifierKeys::ctrlModifier), alt = juce::ModifierKeys(juce::ModifierKeys::altModifier), none = juce::ModifierKeys();
-    const auto ctrlShift = juce::ModifierKeys(juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
-    const auto ctrlAlt = juce::ModifierKeys(juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::altModifier);
+    const auto ctrl = juce::ModifierKeys(juce::ModifierKeys::commandModifier), alt = juce::ModifierKeys(juce::ModifierKeys::altModifier), none = juce::ModifierKeys();
+    const auto ctrlShift = juce::ModifierKeys(juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier);
+    const auto ctrlAlt = juce::ModifierKeys(juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier);
+    // On a Mac "ctrl" above is the Command key. Two of the standard keys belong to macOS there
+    // (Command-Space opens Spotlight, Command-H hides the program), so those two differ.
+#if JUCE_MAC
+    const auto pauseKey = K(K::spaceKey, juce::ModifierKeys(juce::ModifierKeys::ctrlModifier), 0);      // the Control key
+    const auto panicKey = K('.', ctrl, 0);                       // Command-period: the Mac's "stop"
+#else
+    const auto pauseKey = K(K::spaceKey, ctrl, 0);
+    const auto panicKey = K('H', ctrl, 0);
+#endif
     auto& sc = Shortcuts::get();
     sc.clear();
     sc.add("play", "Transport", "Play / stop", K(K::spaceKey, none, 0), [this] { session_.togglePlay(); });
-    sc.add("pause", "Transport", "Pause", K(K::spaceKey, ctrl, 0), [this] { session_.engine.pause(); });
+    sc.add("pause", "Transport", "Pause", pauseKey, [this] { session_.engine.pause(); });
     sc.add("songmode", "Transport", "Pattern / song mode", K('L', none, 0), [this] { session_.setSongMode(!session_.project.songMode); });
     sc.add("record", "Transport", "Record on / off", K('R', none, 0), [this] { session_.recording = !session_.recording; session_.notify(); });
     sc.add("metronome", "Transport", "Metronome on / off", K('M', ctrl, 0), [this] { session_.setMetronome(!session_.engine.metronome()); });
@@ -208,7 +217,7 @@ void MainComponent::registerShortcuts() {
     sc.add("nextpattern", "Patterns", "Next pattern", K(K::numberPadAdd, none, 0), [this] { session_.selectPattern(session_.project.currentPattern + 1); });
     sc.add("prevpattern", "Patterns", "Previous pattern", K(K::numberPadSubtract, none, 0), [this] { session_.selectPattern(session_.project.currentPattern - 1); });
     // a little further into the manual's list
-    sc.add("panic", "Transport", "Stop all sound", K('H', ctrl, 0), [this] { session_.engine.panic(); });
+    sc.add("panic", "Transport", "Stop all sound", panicKey, [this] { session_.engine.panic(); });
     sc.add("waitinput", "Transport", "Wait for input before recording, on / off", K('I', ctrl, 0), [this] { session_.recOpt.waitForInput = !session_.recOpt.waitForInput; session_.saveRecordOptions(); session_.notify(); });
     sc.add("precount", "Transport", "Count-in before recording, on / off", K('P', ctrl, 0), [this] { session_.countInBars = session_.countInBars > 0 ? 0 : 1; session_.notify(); });
     sc.add("blend", "Transport", "Recorded notes blend with / replace what is there", K('B', ctrl, 0), [this] { session_.recOpt.replaceNotes = !session_.recOpt.replaceNotes; session_.saveRecordOptions(); session_.notify(); });
@@ -501,7 +510,7 @@ void MainComponent::toggleBrowser() {
 }
 
 void MainComponent::showMessage(const juce::String& text) {
-    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "PULP", text, "OK", this);
+    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "PULP", theme::keys(text), "OK", this);
 }
 
 juce::String MainComponent::hintFor(juce::Component* under) {
@@ -532,7 +541,7 @@ bool MainComponent::pollTypingKeys() {
     const auto mods = juce::ModifierKeys::getCurrentModifiers();
     bool used = false;
     for (int i = 0; i < kNumTyping; ++i) {
-        const bool down = active && !mods.isCtrlDown() && !mods.isAltDown() && juce::KeyPress::isKeyCurrentlyDown(kTyping[i].code);
+        const bool down = active && !mods.isCommandDown() && !mods.isAltDown() && juce::KeyPress::isKeyCurrentlyDown(kTyping[i].code);
         if (down && typingDown_[i] == 0) {
             const int key = juce::jlimit(0, 127, session_.typingOctave * 12 + kTyping[i].semis);
             typingDown_[i] = key + 1;
@@ -555,7 +564,7 @@ bool MainComponent::handleKey(const juce::KeyPress& k) {
     const auto mods = k.getModifiers();
     const int code = k.getKeyCode();
     const bool plain = !mods.isAnyModifierKeyDown();
-    const bool ctrlOnly = mods.isCtrlDown() && !mods.isShiftDown() && !mods.isAltDown();
+    const bool ctrlOnly = mods.isCommandDown() && !mods.isShiftDown() && !mods.isAltDown();
 
     // while the typing keyboard is on, its keys play notes and nothing else
     if (session_.typingKeyboard && plain && typingKeyOffset(code) >= 0) return true;

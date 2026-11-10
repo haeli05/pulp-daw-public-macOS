@@ -201,7 +201,8 @@ juce::String Toolbar::getTooltip() {
     return {};
 }
 
-void Toolbar::setHint(const juce::String& h) {
+void Toolbar::setHint(const juce::String& text) {
+    const auto h = theme::keys(text);
     if (h != hint_) { hint_ = h; repaint(hintArea_); }
 }
 

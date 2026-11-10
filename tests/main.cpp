@@ -6,7 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <new>
-#ifdef _DEBUG
+#if defined(_DEBUG) && defined(_MSC_VER)
 #include <crtdbg.h>
 #endif
 
@@ -38,7 +38,7 @@ void operator delete(void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 
 int main(int argc, char** argv) {
-#ifdef _DEBUG
+#if defined(_DEBUG) && defined(_MSC_VER)
     // Debug test runs use the checked heap: overruns, double frees and leaks are reported and fail the run.
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF | _CRTDBG_CHECK_EVERY_1024_DF);
     for (int kind : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT}) { _CrtSetReportMode(kind, _CRTDBG_MODE_FILE); _CrtSetReportFile(kind, _CRTDBG_FILE_STDERR); }

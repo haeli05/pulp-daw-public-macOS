@@ -2,11 +2,11 @@
 
 PluginSettings::PluginSettings(Session& s) : s_(s) {
     findBtn_.text = "FIND PLUGINS";
-    findBtn_.setTooltip("Look for VST3 plugins that are not in the list yet. Each one is examined by a separate process, so a plugin that crashes cannot take PULP down.");
+    findBtn_.setTooltip("Look for " PULP_PLUGIN_KINDS " plugins that are not in the list yet. Each one is examined by a separate process, so a plugin that crashes cannot take PULP down.");
     rescanBtn_.text = "RESCAN ALL";
-    rescanBtn_.setTooltip("Examine every VST3 plugin again, including the ones that failed before");
+    rescanBtn_.setTooltip("Examine every " PULP_PLUGIN_KINDS " plugin again, including the ones that failed before");
     folderBtn_.text = "ADD FOLDER...";
-    folderBtn_.setTooltip("Also look for VST3 plugins in a folder of your choice (the standard folder, Common Files\\VST3, is always searched)");
+    folderBtn_.setTooltip("Also look for VST3 plugins in a folder of your choice (the standard folders, " PULP_PLUGIN_FOLDERS ", are always searched)");
     clearBtn_.text = "FORGET FAILED";
     clearBtn_.setTooltip("Clear the list of plugins that failed, so FIND PLUGINS tries them again");
     findBtn_.onClick = [this] { scan(false); };
@@ -38,7 +38,7 @@ void PluginSettings::listChanged() {
         int inst = 0;
         for (auto& e : entries_) inst += e.instrument ? 1 : 0;
         status_ = entries_.empty() && !PluginHost::get().everScanned()
-                    ? juce::String("No scan has been run yet. FIND PLUGINS looks in the standard VST3 folder.")
+                    ? juce::String("No scan has been run yet. FIND PLUGINS looks in the standard " PULP_PLUGIN_KINDS " folders.")
                     : juce::String((int)entries_.size() - inst) + " effects and " + juce::String(inst) + " instruments"
                       + (failed_.isEmpty() ? juce::String() : ", " + juce::String(failed_.size()) + " failed (shown in red; they are left alone)");
     }
@@ -66,7 +66,7 @@ void PluginSettings::paint(juce::Graphics& g) {
     auto r = getLocalBounds().reduced(10);
     g.setColour(theme::accent2);
     g.setFont(theme::font(11.0f, true));
-    g.drawText("VST3 PLUGINS", r.removeFromTop(18), juce::Justification::centredLeft, false);
+    g.drawText(PULP_PLUGIN_KINDS " PLUGINS", r.removeFromTop(18), juce::Justification::centredLeft, false);
     auto foot = getLocalBounds().reduced(10).removeFromBottom(58);
     foot.removeFromBottom(30);
     g.setColour(theme::textDim);

@@ -138,7 +138,7 @@ void PadGrid::filesDropped(const juce::StringArray& files, int x, int y) {
         s_.loadPadKit(s_.currentChannel, list);
     } else if (juce::File(files[0]).isDirectory()) s_.loadPadKit(s_.currentChannel, juce::File(files[0]));
     else if (pad >= 0) {
-        s_.setPadSample(s_.currentChannel, pad, juce::File(files[0]), juce::ModifierKeys::currentModifiers.isCtrlDown());
+        s_.setPadSample(s_.currentChannel, pad, juce::File(files[0]), juce::ModifierKeys::currentModifiers.isCommandDown());
         selected = pad;
         if (onSelect) onSelect(pad);
     }

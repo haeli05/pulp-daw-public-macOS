@@ -456,7 +456,7 @@ void ChannelEditor::rebuild() {
         sampleInfo_ = names.isEmpty() ? "Layer with no children. Select channels in the rack, then right-click this channel and choose Layer: set children."
                                       : "Plays: " + names.joinIntoString(", ");
     } else if (auto* hp = dynamic_cast<HostedPlugin*>(plug)) {
-        sampleInfo_ = hp->description().name + " by " + hp->description().manufacturerName + ", a VST3 plugin. Its own window has every control; the knobs below are "
+        sampleInfo_ = hp->description().name + " by " + hp->description().manufacturerName + ", a " + hp->description().pluginFormatName + " plugin. Its own window has every control; the knobs below are "
                     + juce::String(juce::jmin(48, (int)hp->params().size())) + " of its " + juce::String(hp->totalParameters()) + " parameters.";
     } else if (auto* motes = dynamic_cast<pulp::Motes*>(plug)) {
         // the sound the grains are taken from, drawn like a sampler's (without trim markers)
@@ -577,7 +577,7 @@ void ChannelEditor::libraryMenu() {
         for (auto& f : found) { sub.addItem(1 + (int)files.size(), f.getFileNameWithoutExtension()); files.push_back(f); }
         if (sub.getNumItems() > 0) m.addSubMenu(family.getFileName(), sub);
     }
-    if (files.empty()) m.addItem(-1, "The factory instruments are not built yet (run build.bat library)", false);
+    if (files.empty()) m.addItem(-1, PULP_BUILD_SCRIPT_HINT("The factory instruments are not built yet (run ", " library)"), false);
     m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&libraryBtn_), [safe = juce::Component::SafePointer<ChannelEditor>(this), files](int r) {
         if (safe == nullptr || r <= 0 || r > (int)files.size()) return;
         auto* ch = safe->s_.current();

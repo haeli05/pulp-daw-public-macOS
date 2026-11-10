@@ -136,10 +136,10 @@ public:
             auto& rack = rack_;
             const int index = index_;
             if (e.mods.isPopupMenu()) { s.selectChannel(index); rack.channelMenu(index, rack.rowFor(index)); }
-            else { s.selectChannel(index, e.mods.isCtrlDown() || e.mods.isShiftDown()); if (rack.onOpenChannel) rack.onOpenChannel(index); }
+            else { s.selectChannel(index, e.mods.isCommandDown() || e.mods.isShiftDown()); if (rack.onOpenChannel) rack.onOpenChannel(index); }
             return;
         }
-        if (selRect().expanded(3).contains(e.getPosition())) { s.selectChannel(index_, e.mods.isCtrlDown() || e.mods.isShiftDown()); return; }
+        if (selRect().expanded(3).contains(e.getPosition())) { s.selectChannel(index_, e.mods.isCommandDown() || e.mods.isShiftDown()); return; }
         if (e.x >= stepsLeft()) {
             auto& notes = s.project.pattern().notesFor(channel().id);
             if (!Project::isStepSequence(notes)) { s.selectChannel(index_); if (rack_.onOpenPianoRoll) rack_.onOpenPianoRoll(index_); return; }
@@ -518,8 +518,8 @@ void ChannelRack::addChannelMenu(juce::Component* target) {
         for (auto& e : PluginHost::get().plugins())
             if (e.instrument) { vst.addItem(id++, e.name + (e.maker.isEmpty() ? juce::String() : "   (" + e.maker + ")")); ids.push_back(e.typeId); }
         vst.addSeparator();
-        vst.addItem(2, "Find VST3 plugins...");
-        m.addSubMenu("VST3 instruments", vst);
+        vst.addItem(2, "Find " PULP_PLUGIN_KINDS " plugins...");
+        m.addSubMenu(PULP_PLUGIN_KINDS " instruments", vst);
     }
     m.addSeparator();
     m.addItem(1, "Audio file...");
@@ -565,7 +565,7 @@ void ChannelRack::channelMenu(int index, juce::Component* target) {
     for (auto& t : pulp::PluginRegistry::global().types())
         if (t.instrument) { replace.addItem(id++, t.name); ids.push_back(t.id); }
     for (auto& e : PluginHost::get().plugins())
-        if (e.instrument) { replace.addItem(id++, e.name + "   (VST3)"); ids.push_back(e.typeId); }
+        if (e.instrument) { replace.addItem(id++, e.name + "   (" + e.format + ")"); ids.push_back(e.typeId); }
     m.addSubMenu("Replace instrument", replace);
     m.addItem(2, "Clone");
     m.addItem(3, "Delete", s_.project.channels.size() > 1);
@@ -671,32 +671,32 @@ bool ChannelRack::handleKey(const juce::KeyPress& k) {
     if (code == juce::KeyPress::downKey && mods.isAltDown()) { s_.moveChannel(s_.currentChannel, 1); return true; }
     if (code == juce::KeyPress::upKey && !mods.isAnyModifierKeyDown()) { s_.selectChannel(juce::jmax(0, s_.currentChannel - 1)); return true; }
     if (code == juce::KeyPress::downKey && !mods.isAnyModifierKeyDown()) { s_.selectChannel(juce::jmin(n - 1, s_.currentChannel + 1)); return true; }
-    if (code == juce::KeyPress::leftKey && mods.isShiftDown() && mods.isCtrlDown()) { rotateSteps(s_.currentChannel, -1); return true; }
-    if (code == juce::KeyPress::rightKey && mods.isShiftDown() && mods.isCtrlDown()) { rotateSteps(s_.currentChannel, 1); return true; }
-    if (code == juce::KeyPress::deleteKey && mods.isAltDown()) { if (n > 1) s_.deleteChannel(s_.currentChannel); return true; }
+    if (code == juce::KeyPress::leftKey && mods.isShiftDown() && mods.isCommandDown()) { rotateSteps(s_.currentChannel, -1); return true; }
+    if (code == juce::KeyPress::rightKey && mods.isShiftDown() && mods.isCommandDown()) { rotateSteps(s_.currentChannel, 1); return true; }
+    if (theme::isDeleteKey(code) && mods.isAltDown()) { if (n > 1) s_.deleteChannel(s_.currentChannel); return true; }
     if (code == 'C' && mods.isAltDown()) { s_.cloneChannel(s_.currentChannel); return true; }
-    if (code == 'L' && mods.isCtrlDown() && !mods.isAltDown() && !mods.isShiftDown()) { routeToFreeTracks(); return true; }
+    if (code == 'L' && mods.isCommandDown() && !mods.isAltDown() && !mods.isShiftDown()) { routeToFreeTracks(); return true; }
     // 1 to 9 and 0 mute or unmute the first ten channels; with Ctrl they solo
     if (code >= '0' && code <= '9' && !mods.isAltDown() && !mods.isShiftDown() && !s_.typingKeyboard) {
         const int index = code == '0' ? 9 : code - '1';
         if (index >= n) return true;
         auto& chans = s_.project.channels;
-        if (mods.isCtrlDown()) {
+        if (mods.isCommandDown()) {
             bool othersMuted = true;
             for (int i = 0; i < n; ++i) if (i != index && !chans[(size_t)i].live->mute.getBool()) othersMuted = false;
             const bool unsolo = othersMuted && !chans[(size_t)index].live->mute.getBool();
             for (int i = 0; i < n; ++i) chans[(size_t)i].live->mute.set(unsolo ? 0.0f : (i == index ? 0.0f : 1.0f));
         } else chans[(size_t)index].live->mute.set(chans[(size_t)index].live->mute.getBool() ? 0.0f : 1.0f);
-        s_.commit(mods.isCtrlDown() ? "Solo channel" : "Mute channel");
+        s_.commit(mods.isCommandDown() ? "Solo channel" : "Mute channel");
         return true;
     }
     // Shift with the arrows grows the selection
-    if ((code == juce::KeyPress::upKey || code == juce::KeyPress::downKey) && mods.isShiftDown() && !mods.isCtrlDown() && !mods.isAltDown()) {
+    if ((code == juce::KeyPress::upKey || code == juce::KeyPress::downKey) && mods.isShiftDown() && !mods.isCommandDown() && !mods.isAltDown()) {
         s_.selectChannel(juce::jlimit(0, n - 1, s_.currentChannel + (code == juce::KeyPress::upKey ? -1 : 1)), true);
         return true;
     }
     // the channel's steps or notes in this pattern: copy, cut, paste
-    if ((code == 'C' || code == 'X' || code == 'V') && mods.isCtrlDown() && !mods.isAltDown() && !mods.isShiftDown()) {
+    if ((code == 'C' || code == 'X' || code == 'V') && mods.isCommandDown() && !mods.isAltDown() && !mods.isShiftDown()) {
         static std::vector<pulp::Note> clipboard;
         auto* ch = s_.current();
         if (!ch) return true;
