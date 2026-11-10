@@ -2,8 +2,51 @@
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
+#if defined(__APPLE__)
+#include <cstdio>
+#include <xlocale.h>
+#endif
 
 namespace pulp {
+
+// Floating-point to_chars/from_chars arrive in Apple's libc++ only with macOS 13.3 / 26, later than
+// the macOS 11 PULP supports. There the shortest round-tripping text is found with printf instead,
+// in the C locale so a decimal comma never appears.
+namespace {
+#if defined(__APPLE__)
+locale_t cLocale() { static locale_t l = newlocale(LC_ALL_MASK, "C", nullptr); return l; }
+template <typename T> char* writeFloat(char* b, char* e, T v) {
+    const int maxDigits = sizeof(T) == 4 ? 9 : 17;
+    int n = 0;
+    for (int digits = 1; digits <= maxDigits; ++digits) {
+        n = snprintf_l(b, (size_t)(e - b), cLocale(), "%.*g", digits, (double)v);
+        if (sizeof(T) == 4 ? strtof_l(b, nullptr, cLocale()) == (float)v : strtod_l(b, nullptr, cLocale()) == (double)v) break;
+    }
+    return b + n;
+}
+bool readDouble(const char* p, const char* end, double& d, const char*& stop) {
+    // the JSON number grammar only: sign, digits, fraction, exponent
+    const char* q = p;
+    if (q < end && *q == '-') ++q;
+    while (q < end && ((*q >= '0' && *q <= '9') || *q == '.' || *q == 'e' || *q == 'E' || *q == '+' || *q == '-')) ++q;
+    if (q == p) return false;
+    std::string text(p, q);
+    char* last = nullptr;
+    d = strtod_l(text.c_str(), &last, cLocale());
+    if (last == text.c_str()) return false;
+    stop = p + (last - text.c_str());
+    return true;
+}
+#else
+template <typename T> char* writeFloat(char* b, char* e, T v) { return std::to_chars(b, e, v).ptr; }
+bool readDouble(const char* p, const char* end, double& d, const char*& stop) {
+    auto r = std::from_chars(p, end, d);
+    if (r.ec != std::errc() || r.ptr == p) return false;
+    stop = r.ptr;
+    return true;
+}
+#endif
+}
 
 static const Json kNullJson;
 
@@ -74,11 +117,9 @@ void Json::dumpTo(std::string& out, int indent, int depth) const {
                 auto r = std::to_chars(b, b + sizeof b, (long long)num_);
                 out.append(b, r.ptr);
             } else if (isFloat_) {
-                auto r = std::to_chars(b, b + sizeof b, (float)num_);
-                out.append(b, r.ptr);
+                out.append(b, writeFloat(b, b + sizeof b, (float)num_));
             } else {
-                auto r = std::to_chars(b, b + sizeof b, num_);
-                out.append(b, r.ptr);
+                out.append(b, writeFloat(b, b + sizeof b, num_));
             }
             break;
         }
@@ -202,9 +243,9 @@ struct Parser {
         if (end - p >= 5 && std::string(p, p + 5) == "false") { p += 5; out = Json(false); return true; }
         if (end - p >= 4 && std::string(p, p + 4) == "null") { p += 4; out = Json(); return true; }
         double d = 0.0;
-        auto r = std::from_chars(p, end, d);
-        if (r.ec != std::errc() || r.ptr == p) return fail("bad value");
-        p = r.ptr;
+        const char* stop = p;
+        if (!readDouble(p, end, d, stop)) return fail("bad value");
+        p = stop;
         out = Json(d);
         return true;
     }

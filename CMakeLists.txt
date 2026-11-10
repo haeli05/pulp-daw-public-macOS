@@ -7,6 +7,14 @@ if(APPLE)
   option(PULP_UNIVERSAL "macOS: build for Apple silicon and Intel in one program" OFF)
   if(PULP_UNIVERSAL)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
+  elseif(NOT CMAKE_OSX_ARCHITECTURES)
+    # An Intel CMake (from an Intel Homebrew in /usr/local) runs under Rosetta and would build for
+    # x86_64 on an Apple silicon Mac. Build for the machine itself instead.
+    execute_process(COMMAND sysctl -n hw.optional.arm64 OUTPUT_VARIABLE pulp_arm64
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(pulp_arm64 STREQUAL "1")
+      set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
+    endif()
   endif()
 endif()
 
